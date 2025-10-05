@@ -1,4 +1,20 @@
-# **Project Objectives**
+# **1. Motivation**
+---
+Our team chose to develop a Personal Finance Tracker because managing daily finances is a relatable challenge for many people. Students, professionals, and families all need to track income, expenses, and savings, but existing tools are mostly limited by paywalls, dependent on mobile apps, or overloaded with features that make them complex to use. Our team wants to create a utility that is simple, accessible, and efficient, which is a lightweight command-line finance tracker that anyone can use directly from their terminal.
+
+Our team found this project idea motivating because it combines both personal need for practical usefulness and the opportunity to expand the Rust ecosystem for technical creativity. What excites us most is that this project is practical and fun. It solves real-world problems we face, like logging recurring expenses, understanding where our money goes each month, converting between currencies when travelling around different countries, and managing accounts across different banks. It is also a challenge for us to explore advanced Rust libraries for databases, APIs, and text-based interfaces. This will make the development process rewarding and educational.
+
+From a community perspective, there is a considerable gap in the Rust ecosystem that, although Rust has excellent support for systems programming and web services, there is a lack of finance-focused command-line tools. Most available utilities are written in Python, Java, or C++. By implementing this project in Rust, our team will gain valuable experience with the Rust ecosystem. Nevertheless, this project will contribute a utility that may inspire future Rust developers to explore beyond traditional systems programming.
+
+Generally, the motivation behind our project comes from three main drivers:
+- **Practical need** — addressing a real-world problem in personal finance management.
+- **Personal satisfaction** — working on a project that is both fun and directly applicable to people’s lives satisfied our team a lot.
+- **Community contribution** — filling a gap in Rust’s ecosystem that potentially inspires future applications. 
+
+---
+
+# **2. Project Objectives**
+---
 
 The Object of the Personal Tracker is to use **Rust’s guarantees of memory safety**, **strict type system**, and **efficient concurrency** to perform a **Complete, user-friendly, terminal-based financial utility**.  
 
