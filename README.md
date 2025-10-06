@@ -42,7 +42,7 @@ To realize this objective, the following components will be developed:
 
 ---
 
-#### **Ping Wang is responsible for:**
+#### **Ping Shu is responsible for:**
 
 #### **2.2.1 Transaction Logging and Multi-Account Support**
 
