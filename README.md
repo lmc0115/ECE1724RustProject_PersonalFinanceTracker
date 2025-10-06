@@ -1,2 +1,6 @@
-# ECE1724RustProject_PersonalFinanceTracker
-Design and build a new command-line utility that implements a personal finance tracker, assisting users to manage their income and expenses in various categories.
+﻿# ECE1724 - Rust Project - Personal Finance Tracker
+## 📄 Project Proposal
+
+Our full project proposal is available in the `feature/proposal` branch.
+
+👉 [Click here to view the proposal on GitHub](https://github.com/lmc0115/ECE1724RustProject_PersonalFinanceTracker/tree/feature/proposal)
