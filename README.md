@@ -1,4 +1,15 @@
-# **1. Motivation**
+# Personal Finance Tracker - Project Proposal
+
+
+### **Team Menbers**  
+| Name | Student ID | Email |   
+|------|------------|-------|  
+| Muchen Liu | 1006732145 | muchen.liu@mail.utoronto.ca |
+| Ping Shu | 1010506365 | pings.shu@mail.utoronta.ca | 
+| Ziang Wang | 1006912370 | ziang.wang@mail.utoronto.ca |
+
+
+## **1. Motivation**
 
 Our team chose to develop a Personal Finance Tracker because managing daily finances is a relatable challenge for many people. Students, professionals, and families all need to track income, expenses, and savings, but existing tools are mostly limited by paywalls, dependent on mobile apps, or overloaded with features that make them complex to use. Our team wants to create a utility that is simple, accessible, and efficient, which is a lightweight command-line finance tracker that anyone can use directly from their terminal.
 
@@ -13,9 +24,9 @@ Generally, the motivation behind our project comes from three main drivers:
 
 
 
-# **2. Project Objectives**
+## **2. Project Objectives and Key Features**
 
-
+### **2.1 Objectives**
 The Object of the Personal Tracker is to use **Rust’s guarantees of memory safety**, **strict type system**, and **efficient concurrency** to perform a **Complete, user-friendly, terminal-based financial utility**.  
 
 Our goal is to develop a **practical and user-friendly command-line personal finance tracker** that enables users to manage their daily finances across multiple currencies and bank accounts. The tool enables users to log transactions, categorize them, and view their spending patterns over time.  
@@ -25,16 +36,15 @@ By using a backend server for data storage and integrating real-time exchange ra
 In addition to being a practical tool for everyday use, we aim to explore and demonstrate how **Rust** can be applied to real-world financial records, competing with **JavaScript** and **Python** for mature personal finance ecosystems.
 
 
-
-## **Key Features**
+### **2.2 Key Features**
 
 To realize this objective, the following components will be developed:
 
 ---
 
-### **Shuping is responsible for:**
+#### **Ping Wang is responsible for:**
 
-#### **1. Transaction Logging and Multi-Account Support**
+#### **2.2.1 Transaction Logging and Multi-Account Support**
 
 Our personal finance tracker allows users to register both expenses and income entries, assigning them to user-defined categories. Supporting complex entries where a single transaction is distributed into multiple categories (e.g., groceries split into food, cleaning supplies, and entertainment).  
 
@@ -42,7 +52,7 @@ The utility manages different account types, such as savings, checking, and cred
 
 ---
 
-#### **2. Multi-Currency Support with Real-Time Exchange Rates**
+#### **2.2.2 Multi-Currency Support with Real-Time Exchange Rates**
 
 Many people deal with multiple currencies, whether from travel, daily online purchases. Our personal finance tracker supports multiple bank accounts in different currencies and can fetch real-time exchange rates via API or customize the exchange rate manually.  
 
@@ -52,9 +62,9 @@ Users could manage different account types, such as savings, checking, and credi
 
 ---
 
-### **Ziang is responsible for:**
+#### **Ziang Wang is responsible for:**
 
-#### **3. Recurring Transactions**
+#### **2.2.3 Recurring Transactions**
 
 Expenses and income sometimes follow predictable patterns. Users can set up recurring expenses such as rent, salary, or subscriptions. When creating a recurring transaction, users specify the amount, category, frequency (monthly most of the time), and start date.  
 
@@ -69,7 +79,7 @@ Users maintain full control over recurring transactions—they can modify amount
 
 ---
 
-#### **4. Expense Analysis and Insights**
+#### **2.2.4 Expense Analysis and Insights**
 
 Our finance tracker will provide simple, text-based summaries and charts to help users understand their spending patterns.  
 
@@ -83,9 +93,9 @@ These insights are presented in a straightforward, text-based format that focuse
 
 ---
 
-### **Muchen is responsible for:**
+#### **Muchen Liu is responsible for:**
 
-#### **5. Data Export (CSV/JSON)**
+#### **2.2.5 Data Export (CSV/JSON)**
 
 Users can export their transaction data in standard CSV or JSON formats, which supports other use cases:
 
@@ -97,13 +107,13 @@ The export function allows users to specify date ranges and select which account
 
 ---
 
-#### **6. Text-Based Interface**
+#### **2.2.6 Text-Based Interface**
 
 Build an intuitive command-line interface using **ratatui**. Include tables, graphs, and interactive forms, making the experience accessible to users who prefer terminal workflows.
 
 ---
 
-## **Alignment with Rust Ecosystem Gap**
+### **Alignment with Rust Ecosystem Gap**
 
 This project directly addresses the lack of a comprehensive personal finance tracker in the Rust ecosystem.  
 
@@ -111,91 +121,91 @@ By incorporating reliable storage, expressive TUI components, and back-end integ
 
 ---
 
-# **3. Tentative Plan**
+## **3. Tentative Plan**
 
 
 
-### **1. Project Setup & Database Design**
+### **3.1 Project Setup & Database Design (Week 1: Oct 6 - Oct 12)**
 
-- Initialize Rust project with necessary dependencies (**axum**, **sqlx**, **tokio**, etc.)  
-- Set up **SQLite** database  
-- Design database schema for accounts, transactions, categories, and recurring transactions  
-- Create initial migration files using **sqlx-cli**  
-- Document the database structure and relationships  
-
----
-
-### **2. Database Implementation & Migration**
-
-- Implement database migrations for all core tables  
-- Set up connection pooling and database configuration  
-- Create seed data for testing (sample accounts, categories, transactions)  
-- Verify database operations and constraints  
-- Set up automated migration testing  
+- Initialize Rust project with necessary dependencies (**axum**, **sqlx**, **tokio**, etc.) -- By Ping Shu
+- Set up **SQLite** database -- By Ping Shu
+- Design database schema for accounts, transactions, categories, and recurring transactions -- By Ping Shu
+- Create initial migration files using **sqlx-cli** -- By Muchen Liu
+- Document the database structure and relationships -- By Ziang Wang 
 
 ---
 
-### **3. Backend API Development - Core Features**
+### **3.2 Database Implementation & Migration (Week 2: Oct 13 - Oct 19)**
 
-- Implement RESTful API endpoints for CRUD operations:  
+- Implement database migrations for all core tables -- By Ping Shu
+- Set up connection pooling and database configuration -- By Ping Shu
+- Create seed data for testing (sample accounts, categories, transactions) -- By Muchen Liu  
+- Verify database operations and constraints -- By Ziang Wang 
+- Set up automated migration testing -- By Ziang Wang  
+
+---
+
+### **3.3 Backend API Development - Core Features (Week 3-5: Oct 20 - Nov 9)**
+
+- Implement RESTful API endpoints for CRUD operations: -- By Ping Shu
   - Account management (create, read, update, delete accounts)  
   - Transaction logging (add, edit, delete transactions)  
   - Category management  
   - Basic querying and filtering  
-- Set up proper error handling and validation  
-- Implement API authentication and security  
+- Set up proper error handling and validation -- By Muchen Liu
+- Implement API authentication and security -- By Ziang Wang  
 
 ---
 
-### **4. API Testing & Validation**
+### **3.4 API Testing & Validation (Week 6: Nov 10 - Nov 16)**
 
-- Write unit tests for database operations  
-- Create integration tests for API endpoints  
-- Test with tools like Postman  
-- Validate data integrity and error handling  
-- Document API endpoints and usage  
-
----
-
-### **5. Advanced Features - Multi-Currency & Recurring Transactions**
-
-- Integrate exchange rate API (e.g., exchangerate-api.io or similar)  
-- Implement currency conversion logic  
-- Create endpoints for managing recurring transactions  
-- Test currency conversion accuracy and recurring transaction automation  
+- Write unit tests for database operations -- By Ping Shu
+- Create integration tests for API endpoints -- By Ping Shu
+- Test with tools like Postman -- By Muchen Liu
+- Validate data integrity and error handling -- By Ziang Wang
+- Document API endpoints and usage -- By Ziang Wang  
 
 ---
 
-### **6. Data Analysis & Export Features**
+### **3.5 Advanced Features - Multi-Currency & Recurring Transactions (Week 7: Nov 17 - Nov 23)**
 
-- Implement spending analysis algorithms  
-- Create endpoints for generating reports and insights  
-- Build CSV/JSON export functionality  
-- Add query filters for custom date ranges and categories  
-- Test export formats and analysis accuracy  
+- Integrate exchange rate API (e.g., exchangerate-api.io or similar)  -- By Ping Shu 
+- Implement currency conversion logic -- By Ping Shu
+- Create endpoints for managing recurring transactions -- By Muchen Liu
+- Test currency conversion accuracy and recurring transaction automation -- By Ziang Wang  
 
 ---
 
-### **7. TUI Development with Ratatui**
+### **3.6 Data Analysis & Export Features (Week 8: Nov 24 - Nov 30)**
 
-- Set up **ratatui** framework and basic UI structure  
-- Implement main navigation and menu system  
-- Create screens for:  
+- Implement spending analysis algorithms -- By Ping Shu
+- Create endpoints for generating reports and insights -- By Ping Shu  
+- Build CSV/JSON export functionality -- By Muchen Liu
+- Add query filters for custom date ranges and categories -- By Muchen Liu 
+- Test export formats and analysis accuracy -- By Ziang Wang  
+
+---
+
+### **3.7 TUI Development with Ratatui (Week 9: Dec 1 - Dec 7)**
+
+- Set up **ratatui** framework and basic UI structure -- By Ping Shu 
+- Implement main navigation and menu system -- By Ping Shu
+- Create screens for: -- By Muchen Liu
   - Transaction entry and viewing  
   - Account management  
   - Spending analysis and reports  
   - Settings and configuration  
-- Connect TUI to backend API endpoints  
+- Connect TUI to backend API endpoints -- By Ziang Wang  
 
 ---
 
-### **8. Documentation & Finalization**
+### **3.8 Documentation & Finalization (Week 10: Dec 8 - Dec 15)**
 
-- Write user documentation and setup guide  
-- Document API specifications  
-- Create developer documentation for future maintenance  
-- Make Video Slide Presentation and Project Video Demo  
-- Prepare final project submission  
+- Write user documentation and setup guide -- By Ping Shu
+- Document API specifications -- By Ping Shu
+- Create developer documentation for future maintenance -- By Muchen Liu
+- Make Video Slide Presentation and Project Video Demo -- By Muchen Liu  
+- Prepare final project submission -- By Ziang Wang  
 
 ---
 
