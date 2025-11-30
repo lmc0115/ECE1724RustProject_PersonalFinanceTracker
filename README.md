@@ -258,4 +258,12 @@ sqlite3 personal-finance-tracker.db ".tables"
 # categories                transaction_categories
 # exchange_rates            transactions
 # users
+
+## Populate some original data into db
+cargo run db_seed
+
+# Other commands
+cargo run db_clear   // Clear all of data in the db
+cargo run db_reseed   // Clear and re-seed database
+cargo run help    // Print out the help text
 ```
