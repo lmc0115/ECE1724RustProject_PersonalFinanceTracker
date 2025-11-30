@@ -5,7 +5,6 @@ CREATE TABLE IF NOT EXISTS categories (
     
     -- Category name: user-defined name (e.g., "Food", "Salary", "Transportation")
     name TEXT NOT NULL,
-    category_type TEXT NOT NULL CHECK(category_type IN ('income', 'expense')),
     
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -27,5 +26,3 @@ BEGIN
 END;
 
 CREATE INDEX IF NOT EXISTS idx_categories_user_id ON categories(user_id);
-CREATE INDEX IF NOT EXISTS idx_categories_type ON categories(category_type);
-CREATE INDEX IF NOT EXISTS idx_categories_user_type ON categories(user_id, category_type);
