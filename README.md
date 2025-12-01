@@ -213,3 +213,57 @@ By incorporating reliable storage, expressive TUI components, and back-end integ
 
 This plan is tentative and will be adjusted as we progress.  
 We expect to iterate on earlier components (database, API) as we learn from implementing later features (TUI, analysis).
+
+
+
+## 4. Project Setup (One-Time Setup Only)
+This setup process only needs to be run ONCE when you first clone the repository.
+After completing these steps, you can start developing immediately without repeating the setup process. The database and environment configuration will persist for all future development sessions.
+---
+
+### Prerequisites
+Before starting, ensure you have:
+- Rust and Cargo installed
+- Git installed
+- SQLite3 installed
+
+#### Step 1. Clone repository into local device and create a working branch.
+#### Step 2. Create .env file
+**Purpose:** The .env file stores environment variables, particularly the database connection string.
+```sh
+cp .env.example .env
+```
+Replace XXXXXX placeholders in .env with your actual values if needed.
+
+#### Step 3. Initialize database.
+**Purpose:** Set up the SQLite database and apply all migrations to create the table schema.
+
+```sh
+# Install SQLx CLI if not already installed
+# This tool is used for database migrations and compile-time query verification
+cargo install sqlx-cli --features sqlite
+
+# Create the database file
+# This creates a new SQLite database file: personal-finance-tracker.db
+sqlx database create
+
+# Run all migrations
+# This executes all .sql files in migrations/ folder to create tables, indexes, and triggers
+sqlx migrate run
+
+## Verify all tables were created
+sqlite3 personal-finance-tracker.db ".tables"
+# Expected output (all 7 tables should be listed):
+# accounts                  recurring_transactions
+# categories                transaction_categories
+# exchange_rates            transactions
+# users
+
+## Populate some original data into db
+cargo run db_seed
+
+# Other commands
+cargo run db_clear   // Clear all of data in the db
+cargo run db_reseed   // Clear and re-seed database
+cargo run help    // Print out the help text
+```
