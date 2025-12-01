@@ -252,7 +252,7 @@ sqlx database create
 sqlx migrate run
 
 ## Verify all tables were created
-sqlite3 personal-finance-tracker.db ".tables"
+sqlite3 {your-own-db-name}.db ".tables"
 # Expected output (all 7 tables should be listed):
 # accounts                  recurring_transactions
 # categories                transaction_categories
@@ -267,3 +267,28 @@ cargo run db_clear   // Clear all of data in the db
 cargo run db_reseed   // Clear and re-seed database
 cargo run help    // Print out the help text
 ```
+
+
+## 5. Running the API Server
+
+After completing the one-time setup, you can start the REST API server by:
+```sh
+cargo run serve
+```
+
+The server will start at `http://127.0.0.1:8080` by default, and you should see output like:    
+
+Connecting to database...  
+Connected to: sqlite:./{your-own-db-name}.db  
+Starting web server...   
+Server running at http://127.0.0.1:8080   
+API Documentation:  
+- Users:        GET/POST    /users  
+- User:         GET/PUT/DEL /users/{id}   
+- Accounts:     GET/POST    /accounts   
+- Account:      GET/PUT/DEL /accounts/{id}   
+- Categories:   GET/POST    /categories   
+- Category:     GET/PUT/DEL /categories/{id}   
+- Transactions: GET/POST    /transactions   
+- Transaction:  GET/PUT/DEL /transactions/{id}      
+

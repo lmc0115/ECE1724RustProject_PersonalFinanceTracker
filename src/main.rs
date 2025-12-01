@@ -1,120 +1,105 @@
-// main.rs
-// Main entry point for Personal Finance Tracker
-
+// main.rs - Updated to include web server
+mod api;
 mod models;
-mod seed;
+mod seed; // Add this line
 
+use actix_web::{middleware, web, App, HttpServer};
 use dotenvy::dotenv;
 use sqlx::SqlitePool;
 use std::env;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Load environment variables from .env file
     dotenv().ok();
-
-    // Get database URL from environment
-    let database_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set in .env file");
-
-    // Parse command line arguments
+    let database_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
     let args: Vec<String> = env::args().collect();
 
+    // Connect to database
+    println!("Connecting to database...");
+    let pool = SqlitePool::connect(&database_url).await?;
+    sqlx::query("PRAGMA foreign_keys = ON")
+        .execute(&pool)
+        .await?;
+    println!("Connected to: {}", database_url);
+
     if args.len() > 1 {
-        // Create database connection pool (only if command requires it)
-        let pool = match args[1].as_str() {
-            "help" | "--help" | "-h" => {
-                // Help doesn't need database connection
-                print_usage();
-                return Ok(());
-            }
-            _ => {
-                println!("📦 Connecting to database...");
-                let pool = SqlitePool::connect(&database_url).await?;
-
-                // Enable foreign key constraints (important for SQLite)
-                sqlx::query("PRAGMA foreign_keys = ON")
-                    .execute(&pool)
-                    .await?;
-
-                println!("   ✓ Connected to: {}", database_url);
-                println!();
-                pool
-            }
-        };
-
+        // CLI commands
         match args[1].as_str() {
-            "db_seed" => {
-                // Run database seeding
-                seed::seed_database(&pool).await?;
+            "serve" => {
+                println!("Starting web server...");
+                let bind_address =
+                    env::var("BIND_ADDRESS").unwrap_or_else(|_| "127.0.0.1:8080".to_string());
+
+                println!("Server running at http://{}", bind_address);
+                println!("API Documentation:");
+                println!("   Users:        GET/POST    /users");
+                println!("   User:         GET/PUT/DEL /users/{{id}}");
+                println!("   Accounts:     GET/POST    /accounts");
+                println!("   Account:      GET/PUT/DEL /accounts/{{id}}");
+                println!("   Categories:   GET/POST    /categories");
+                println!("   Category:     GET/PUT/DEL /categories/{{id}}");
+                println!("   Transactions: GET/POST    /transactions");
+                println!("   Transaction:  GET/PUT/DEL /transactions/{{id}}");
+                println!();
+
+                HttpServer::new(move || {
+                    App::new()
+                        .app_data(web::Data::new(pool.clone()))
+                        .wrap(middleware::Logger::default())
+                        .configure(api::configure_routes)
+                })
+                .bind(&bind_address)?
+                .run()
+                .await?;
             }
+            "db_seed" => seed::seed_database(&pool).await?,
             "db_clear" => {
-                // Clear all data
-                println!("⚠️  WARNING: This will delete ALL data!");
-                println!("   Press Enter to continue, Ctrl+C to cancel...");
+                println!("WARNING: This will delete ALL data!");
+                println!("Press Enter to continue, Ctrl+C to cancel...");
                 let mut input = String::new();
                 std::io::stdin().read_line(&mut input)?;
-
                 seed::clear_database(&pool).await?;
-                println!();
-                println!("✅ Database cleared successfully!");
+                println!("Database cleared successfully!");
             }
             "db_reseed" => {
-                // Clear and re-seed
-                println!("🔄 Re-seeding database (clear + seed)...");
-                println!();
+                println!("Re-seeding database...");
                 seed::clear_database(&pool).await?;
-                println!();
                 seed::seed_database(&pool).await?;
             }
-            "db_status" => {
-                // Show database status
-                print_database_status(&pool).await?;
-            }
+            "db_status" => print_database_status(&pool).await?,
             _ => {
-                println!("❌ Unknown command: {}", args[1]);
-                println!();
+                println!("Unknown command: {}", args[1]);
                 print_usage();
             }
         }
-
-        // Close the connection pool
-        pool.close().await;
     } else {
-        // No arguments - show help
         print_usage();
     }
 
     Ok(())
 }
 
-/// Print usage information
 fn print_usage() {
     println!("┌─────────────────────────────────────────────┐");
-    println!("│   Personal Finance Tracker - CLI Tool      │");
+    println!("│ Personal Finance Tracker - CLI Tool         │");
     println!("└─────────────────────────────────────────────┘");
     println!();
-    println!("Usage: cargo run <command>");
+    println!("Usage: cargo run [command]");
     println!();
     println!("Commands:");
-    println!("  db_status     Show database status (record counts)");
-    println!("  db_seed       Populate database with sample data");
-    println!("  db_clear      Clear all data from database");
-    println!("  db_reseed     Clear and re-seed database");
-    println!("  help          Show this help message");
-    println!();
-    println!("Examples:");
-    println!("  cargo run db_status   # Check how many records exist");
-    println!("  cargo run db_seed     # Add sample data");
-    println!("  cargo run db_reseed   # Reset with fresh data");
+    println!("  serve       Start REST API server");
+    println!("  db_status   Show database status");
+    println!("  db_seed     Populate with sample data");
+    println!("  db_clear    Clear all data");
+    println!("  db_reseed   Clear and re-seed");
+    println!("  help        Show this message");
     println!();
 }
 
-/// Print current database status
 async fn print_database_status(pool: &SqlitePool) -> Result<(), sqlx::Error> {
-    println!("📊 Database Status:");
+    println!("Database Status:");
     println!();
 
-    // Count records in each table
     let users: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users")
         .fetch_one(pool)
         .await?;
@@ -127,28 +112,19 @@ async fn print_database_status(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     let transactions: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM transactions")
         .fetch_one(pool)
         .await?;
-    let recurring: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM recurring_transactions")
-        .fetch_one(pool)
-        .await?;
-    let rates: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM exchange_rates")
-        .fetch_one(pool)
-        .await?;
 
-    println!("  Users:                   {}", users);
-    println!("  Accounts:                {}", accounts);
-    println!("  Categories:              {}", categories);
-    println!("  Transactions:            {}", transactions);
-    println!("  Recurring Transactions:  {}", recurring);
-    println!("  Exchange Rates:          {}", rates);
+    println!(" Users: {}", users);
+    println!(" Accounts: {}", accounts);
+    println!(" Categories: {}", categories);
+    println!(" Transactions: {}", transactions);
     println!();
 
     if users == 0 {
-        println!("💡 Tip: Database is empty. Run 'cargo run db_seed' to populate with sample data");
-        println!();
+        println!("Tip: Run 'cargo run db_seed' to populate data");
     } else {
-        println!("✅ Database contains data");
-        println!();
+        println!("Database contains data");
     }
+    println!();
 
     Ok(())
 }

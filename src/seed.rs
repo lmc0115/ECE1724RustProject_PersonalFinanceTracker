@@ -1,7 +1,3 @@
-// seed.rs
-// Database seeding module for Personal Finance Tracker
-// Populates the database with sample data for development and testing
-
 use chrono::{DateTime, Duration, Utc};
 use sqlx::SqlitePool;
 
