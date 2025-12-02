@@ -1,7 +1,8 @@
-// main.rs - Updated to include web server
+// main.rs
 mod api;
 mod models;
-mod seed; // Add this line
+mod seed;
+mod tui;
 
 use actix_web::{middleware, web, App, HttpServer};
 use dotenvy::dotenv;
@@ -23,8 +24,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Connected to: {}", database_url);
 
     if args.len() > 1 {
-        // CLI commands
         match args[1].as_str() {
+            "tui" => {
+                // Launch TUI
+                let mut app = tui::App::new(pool.clone());
+                app.run().await?;
+                return Ok(());
+            }
             "serve" => {
                 println!("Starting web server...");
                 let bind_address =
@@ -51,6 +57,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .bind(&bind_address)?
                 .run()
                 .await?;
+
+                return Ok(());
             }
             "db_seed" => seed::seed_database(&pool).await?,
             "db_clear" => {
@@ -59,16 +67,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let mut input = String::new();
                 std::io::stdin().read_line(&mut input)?;
                 seed::clear_database(&pool).await?;
+                println!();
                 println!("Database cleared successfully!");
             }
             "db_reseed" => {
-                println!("Re-seeding database...");
+                println!("Re-seeding database (clear + seed)...");
+                println!();
                 seed::clear_database(&pool).await?;
                 seed::seed_database(&pool).await?;
             }
             "db_status" => print_database_status(&pool).await?,
             _ => {
                 println!("Unknown command: {}", args[1]);
+                println!();
                 print_usage();
             }
         }
@@ -80,13 +91,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn print_usage() {
-    println!("┌─────────────────────────────────────────────┐");
-    println!("│ Personal Finance Tracker - CLI Tool         │");
-    println!("└─────────────────────────────────────────────┘");
+    println!("+-----------------------------------------+");
+    println!("| Personal Finance Tracker - CLI Tool     |");
+    println!("+-----------------------------------------+");
     println!();
     println!("Usage: cargo run [command]");
     println!();
     println!("Commands:");
+    println!("  tui         Launch Text User Interface");
     println!("  serve       Start REST API server");
     println!("  db_status   Show database status");
     println!("  db_seed     Populate with sample data");
@@ -112,17 +124,27 @@ async fn print_database_status(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     let transactions: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM transactions")
         .fetch_one(pool)
         .await?;
+    let recurring: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM recurring_transactions")
+        .fetch_one(pool)
+        .await?;
+    let rates: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM exchange_rates")
+        .fetch_one(pool)
+        .await?;
 
     println!(" Users: {}", users);
     println!(" Accounts: {}", accounts);
     println!(" Categories: {}", categories);
     println!(" Transactions: {}", transactions);
+    println!(" Recurring Transactions: {}", recurring);
+    println!(" Exchange Rates: {}", rates);
     println!();
 
     if users == 0 {
-        println!("Tip: Run 'cargo run db_seed' to populate data");
+        println!("Tip: Database is empty. Run 'cargo run db_seed' to populate with sample data");
+        println!();
     } else {
         println!("Database contains data");
+        println!();
     }
     println!();
 
