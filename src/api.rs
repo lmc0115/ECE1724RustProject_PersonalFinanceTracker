@@ -492,7 +492,7 @@ async fn get_transactions(
     pool: web::Data<SqlitePool>,
     query: web::Query<TransactionFilter>,
 ) -> impl Responder {
-    let offset = (query.pagination.page - 1) * query.pagination.page_size;
+    let offset = (query.page - 1) * query.page_size;
 
     let mut where_clauses = Vec::new();
 
@@ -511,7 +511,7 @@ async fn get_transactions(
 
     let query_sql = format!(
         "SELECT * FROM transactions {} ORDER BY transaction_date DESC LIMIT {} OFFSET {}",
-        where_sql, query.pagination.page_size, offset
+        where_sql, query.page_size, offset
     );
 
     let transactions = sqlx::query_as::<_, Transaction>(&query_sql)
@@ -529,9 +529,9 @@ async fn get_transactions(
             let response = PaginatedResponse {
                 items: transactions,
                 total,
-                page: query.pagination.page,
-                page_size: query.pagination.page_size,
-                total_pages: (total + query.pagination.page_size - 1) / query.pagination.page_size,
+                page: query.page,
+                page_size: query.page_size,
+                total_pages: (total + query.page_size - 1) / query.page_size,
             };
             HttpResponse::Ok().json(ApiResponse::success(response))
         }
@@ -705,18 +705,14 @@ async fn update_transaction(
 
 /// DELETE /transactions/{id} - Delete transaction
 #[delete("/transactions/{id}")]
-async fn delete_transaction(
-    pool: web::Data<SqlitePool>,
-    id: web::Path<i64>,
-) -> impl Responder {
+async fn delete_transaction(pool: web::Data<SqlitePool>, id: web::Path<i64>) -> impl Responder {
     let id = id.into_inner();
 
     // 1. Fetch the transaction so we know its amount, type, and account
-    let existing_txn =
-        sqlx::query_as::<_, Transaction>("SELECT * FROM transactions WHERE id = ?")
-            .bind(id)
-            .fetch_optional(pool.get_ref())
-            .await;
+    let existing_txn = sqlx::query_as::<_, Transaction>("SELECT * FROM transactions WHERE id = ?")
+        .bind(id)
+        .fetch_optional(pool.get_ref())
+        .await;
 
     let txn = match existing_txn {
         Ok(Some(txn)) => txn,
@@ -740,15 +736,12 @@ async fn delete_transaction(
     };
 
     // 3. Delete any related transaction_categories rows (if you have them)
-    if let Err(e) = sqlx::query(
-        "DELETE FROM transaction_categories WHERE transaction_id = ?",
-    )
-    .bind(id)
-    .execute(pool.get_ref())
-    .await
+    if let Err(e) = sqlx::query("DELETE FROM transaction_categories WHERE transaction_id = ?")
+        .bind(id)
+        .execute(pool.get_ref())
+        .await
     {
-        return HttpResponse::InternalServerError()
-            .json(ApiResponse::<()>::error(e.to_string()));
+        return HttpResponse::InternalServerError().json(ApiResponse::<()>::error(e.to_string()));
     }
 
     // 4. Delete the transaction itself
@@ -769,9 +762,7 @@ async fn delete_transaction(
                 .execute(pool.get_ref())
                 .await;
 
-                HttpResponse::Ok().json(ApiResponse::success(
-                    "Transaction deleted successfully",
-                ))
+                HttpResponse::Ok().json(ApiResponse::success("Transaction deleted successfully"))
             } else {
                 // Shouldn’t really happen since we already fetched it,
                 // but keep the check for safety.
@@ -779,8 +770,315 @@ async fn delete_transaction(
                     .json(ApiResponse::<()>::error("Transaction not found".into()))
             }
         }
-        Err(e) => HttpResponse::InternalServerError()
-            .json(ApiResponse::<()>::error(e.to_string())),
+        Err(e) => HttpResponse::InternalServerError().json(ApiResponse::<()>::error(e.to_string())),
+    }
+}
+
+// ============================================================================
+// Exchange Rate Endpoints
+// ============================================================================
+
+/// GET /exchange-rates - List exchange rates with filters
+#[get("/exchange-rates")]
+async fn get_exchange_rates(
+    pool: web::Data<SqlitePool>,
+    query: web::Query<ExchangeRateFilter>,
+) -> impl Responder {
+    let offset = (query.page - 1) * query.page_size as i64;
+
+    let mut where_clauses = Vec::new();
+
+    if let Some(ref from) = query.from_currency {
+        where_clauses.push(format!("from_currency = '{}'", from));
+    }
+    if let Some(ref to) = query.to_currency {
+        where_clauses.push(format!("to_currency LIKE '%{}%'", to));
+    }
+    if let Some(ref source) = query.source {
+        where_clauses.push(format!("source = '{}'", source));
+    }
+    if let Some(date) = query.date {
+        where_clauses.push(format!("DATE(rate_date) = '{}'", date.format("%Y-%m-%d")));
+    }
+
+    let where_sql = if where_clauses.is_empty() {
+        String::new()
+    } else {
+        format!("WHERE {}", where_clauses.join(" AND "))
+    };
+
+    let query_sql = format!(
+        "SELECT * FROM exchange_rates {} ORDER BY rate_date DESC, from_currency, to_currency LIMIT {} OFFSET {}",
+        where_sql, query.page_size, offset
+    );
+
+    let rates = sqlx::query_as::<_, ExchangeRate>(&query_sql)
+        .fetch_all(pool.get_ref())
+        .await;
+
+    let count_sql = format!("SELECT COUNT(*) FROM exchange_rates {}", where_sql);
+    let total: i64 = sqlx::query_scalar(&count_sql)
+        .fetch_one(pool.get_ref())
+        .await
+        .unwrap_or(0);
+
+    match rates {
+        Ok(rates) => {
+            let response = PaginatedResponse {
+                items: rates,
+                total,
+                page: query.page,
+                page_size: query.page_size,
+                total_pages: (total + query.page_size - 1) / query.page_size,
+            };
+            HttpResponse::Ok().json(ApiResponse::success(response))
+        }
+        Err(e) => HttpResponse::InternalServerError().json(ApiResponse::<()>::error(e.to_string())),
+    }
+}
+
+/// GET /exchange-rates/latest/{from_currency} - Get latest rates for a currency
+#[get("/exchange-rates/latest/{from_currency}")]
+async fn get_latest_rates(
+    pool: web::Data<SqlitePool>,
+    from_currency: web::Path<String>,
+) -> impl Responder {
+    let from_currency = from_currency.into_inner();
+
+    // Get the latest date for this currency
+    let latest_date: Option<String> = sqlx::query_scalar(
+        "SELECT DATE(rate_date) FROM exchange_rates 
+         WHERE from_currency = ? 
+         ORDER BY rate_date DESC 
+         LIMIT 1",
+    )
+    .bind(&from_currency)
+    .fetch_optional(pool.get_ref())
+    .await
+    .unwrap_or(None);
+
+    if latest_date.is_none() {
+        return HttpResponse::NotFound().json(ApiResponse::<()>::error(format!(
+            "No rates found for {}",
+            from_currency
+        )));
+    }
+
+    let latest_date = latest_date.unwrap();
+
+    // Get all rates for that date
+    let rates = sqlx::query_as::<_, ExchangeRate>(
+        "SELECT * FROM exchange_rates 
+         WHERE from_currency = ? AND DATE(rate_date) = ?
+         ORDER BY to_currency",
+    )
+    .bind(&from_currency)
+    .bind(&latest_date)
+    .fetch_all(pool.get_ref())
+    .await;
+
+    match rates {
+        Ok(rates) => HttpResponse::Ok().json(ApiResponse::success(rates)),
+        Err(e) => HttpResponse::InternalServerError().json(ApiResponse::<()>::error(e.to_string())),
+    }
+}
+
+/// GET /exchange-rates/convert - Convert amount between currencies
+#[get("/exchange-rates/convert")]
+async fn convert_currency(
+    pool: web::Data<SqlitePool>,
+    query: web::Query<CurrencyConversion>,
+) -> impl Responder {
+    // Get the latest rate
+    let rate: Option<f64> = sqlx::query_scalar(
+        "SELECT rate FROM exchange_rates 
+         WHERE from_currency = ? AND to_currency LIKE ?
+         ORDER BY rate_date DESC 
+         LIMIT 1",
+    )
+    .bind(&query.from_currency)
+    .bind(format!("%({})%", &query.to_currency))
+    .fetch_optional(pool.get_ref())
+    .await
+    .unwrap_or(None);
+
+    match rate {
+        Some(rate) => {
+            let converted_amount = query.amount * rate;
+            let result = ConversionResult {
+                from_currency: query.from_currency.clone(),
+                to_currency: query.to_currency.clone(),
+                amount: query.amount,
+                rate,
+                converted_amount,
+            };
+            HttpResponse::Ok().json(ApiResponse::success(result))
+        }
+        None => HttpResponse::NotFound().json(ApiResponse::<()>::error(format!(
+            "No exchange rate found from {} to {}",
+            query.from_currency, query.to_currency
+        ))),
+    }
+}
+
+/// GET /exchange-rates/{id} - Get exchange rate by ID
+#[get("/exchange-rates/{id}")]
+async fn get_exchange_rate(pool: web::Data<SqlitePool>, id: web::Path<i64>) -> impl Responder {
+    let id = id.into_inner();
+
+    let rate = sqlx::query_as::<_, ExchangeRate>("SELECT * FROM exchange_rates WHERE id = ?")
+        .bind(id)
+        .fetch_optional(pool.get_ref())
+        .await;
+
+    match rate {
+        Ok(Some(rate)) => HttpResponse::Ok().json(ApiResponse::success(rate)),
+        Ok(None) => HttpResponse::NotFound()
+            .json(ApiResponse::<()>::error("Exchange rate not found".into())),
+        Err(e) => HttpResponse::InternalServerError().json(ApiResponse::<()>::error(e.to_string())),
+    }
+}
+
+/// POST /exchange-rates - Create new exchange rate
+#[post("/exchange-rates")]
+async fn create_exchange_rate(
+    pool: web::Data<SqlitePool>,
+    rate_data: web::Json<CreateExchangeRate>,
+) -> impl Responder {
+    let rate_date = rate_data.rate_date.unwrap_or_else(Utc::now);
+    let source = rate_data.source.as_deref().unwrap_or("manual");
+
+    let result = sqlx::query(
+        "INSERT INTO exchange_rates (from_currency, to_currency, rate, rate_date, source) 
+         VALUES (?, ?, ?, ?, ?)",
+    )
+    .bind(&rate_data.from_currency)
+    .bind(&rate_data.to_currency)
+    .bind(rate_data.rate)
+    .bind(rate_date)
+    .bind(source)
+    .execute(pool.get_ref())
+    .await;
+
+    match result {
+        Ok(result) => {
+            let rate =
+                sqlx::query_as::<_, ExchangeRate>("SELECT * FROM exchange_rates WHERE id = ?")
+                    .bind(result.last_insert_rowid())
+                    .fetch_one(pool.get_ref())
+                    .await
+                    .unwrap();
+
+            HttpResponse::Created().json(ApiResponse::success(rate))
+        }
+        Err(e) => HttpResponse::InternalServerError().json(ApiResponse::<()>::error(e.to_string())),
+    }
+}
+
+/// PUT /exchange-rates/{id} - Update exchange rate
+#[put("/exchange-rates/{id}")]
+async fn update_exchange_rate(
+    pool: web::Data<SqlitePool>,
+    id: web::Path<i64>,
+    update_data: web::Json<UpdateExchangeRate>,
+) -> impl Responder {
+    let id = id.into_inner();
+    let mut updates = Vec::new();
+
+    if let Some(rate) = update_data.rate {
+        updates.push(format!("rate = {}", rate));
+    }
+    if let Some(ref source) = update_data.source {
+        updates.push(format!("source = '{}'", source));
+    }
+
+    if updates.is_empty() {
+        return HttpResponse::BadRequest()
+            .json(ApiResponse::<()>::error("No fields to update".into()));
+    }
+
+    let query = format!(
+        "UPDATE exchange_rates SET {}, updated_at = datetime('now') WHERE id = {}",
+        updates.join(", "),
+        id
+    );
+
+    let result = sqlx::query(&query).execute(pool.get_ref()).await;
+
+    match result {
+        Ok(_) => {
+            let rate =
+                sqlx::query_as::<_, ExchangeRate>("SELECT * FROM exchange_rates WHERE id = ?")
+                    .bind(id)
+                    .fetch_one(pool.get_ref())
+                    .await
+                    .unwrap();
+            HttpResponse::Ok().json(ApiResponse::success(rate))
+        }
+        Err(e) => HttpResponse::InternalServerError().json(ApiResponse::<()>::error(e.to_string())),
+    }
+}
+
+/// DELETE /exchange-rates/{id} - Delete exchange rate
+#[delete("/exchange-rates/{id}")]
+async fn delete_exchange_rate(pool: web::Data<SqlitePool>, id: web::Path<i64>) -> impl Responder {
+    let id = id.into_inner();
+
+    let result = sqlx::query("DELETE FROM exchange_rates WHERE id = ?")
+        .bind(id)
+        .execute(pool.get_ref())
+        .await;
+
+    match result {
+        Ok(result) => {
+            if result.rows_affected() > 0 {
+                HttpResponse::Ok().json(ApiResponse::success("Exchange rate deleted successfully"))
+            } else {
+                HttpResponse::NotFound()
+                    .json(ApiResponse::<()>::error("Exchange rate not found".into()))
+            }
+        }
+        Err(e) => HttpResponse::InternalServerError().json(ApiResponse::<()>::error(e.to_string())),
+    }
+}
+
+/// DELETE /exchange-rates/bulk - Delete rates by date and source
+#[delete("/exchange-rates/bulk")]
+async fn delete_rates_bulk(
+    pool: web::Data<SqlitePool>,
+    query: web::Query<BulkDeleteParams>,
+) -> impl Responder {
+    let mut where_clauses = Vec::new();
+
+    if let Some(ref from) = query.from_currency {
+        where_clauses.push(format!("from_currency = '{}'", from));
+    }
+    if let Some(date) = query.date {
+        where_clauses.push(format!("DATE(rate_date) = '{}'", date.format("%Y-%m-%d")));
+    }
+    if let Some(ref source) = query.source {
+        where_clauses.push(format!("source = '{}'", source));
+    }
+
+    if where_clauses.is_empty() {
+        return HttpResponse::BadRequest().json(ApiResponse::<()>::error(
+            "No deletion criteria provided".into(),
+        ));
+    }
+
+    let query_sql = format!(
+        "DELETE FROM exchange_rates WHERE {}",
+        where_clauses.join(" AND ")
+    );
+
+    let result = sqlx::query(&query_sql).execute(pool.get_ref()).await;
+
+    match result {
+        Ok(result) => HttpResponse::Ok().json(ApiResponse::success(format!(
+            "Deleted {} exchange rate(s)",
+            result.rows_affected()
+        ))),
+        Err(e) => HttpResponse::InternalServerError().json(ApiResponse::<()>::error(e.to_string())),
     }
 }
 
@@ -808,5 +1106,13 @@ pub fn configure_routes(cfg: &mut web::ServiceConfig) {
         .service(get_transaction)
         .service(create_transaction)
         .service(update_transaction)
-        .service(delete_transaction);
+        .service(delete_transaction)
+        .service(get_exchange_rates)
+        .service(get_latest_rates)
+        .service(convert_currency)
+        .service(create_exchange_rate)
+        .service(update_exchange_rate)
+        .service(delete_rates_bulk)
+        .service(delete_exchange_rate)
+        .service(get_exchange_rate);
 }

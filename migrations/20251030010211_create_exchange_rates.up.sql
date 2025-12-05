@@ -8,7 +8,7 @@ CREATE TABLE IF NOT EXISTS exchange_rates (
     -- Example: USD to EUR rate of 0.85 means 1 USD = 0.85 EUR
     rate REAL NOT NULL,
     rate_date TIMESTAMP NOT NULL,
-    source TEXT NOT NULL CHECK(source IN ('api', 'bank', 'manual')),
+    source TEXT NOT NULL CHECK(source IN ('api', 'bank', 'manual', 'scraper')),
     
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
