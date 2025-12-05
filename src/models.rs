@@ -242,7 +242,7 @@ pub struct ExchangeRate {
     pub to_currency: String,
     pub rate: f64,
     pub rate_date: DateTime<Utc>,
-    pub source: String, // "api", "bank", "manual"
+    pub source: String, // "api", "bank", "manual", "scraper"
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -253,14 +253,49 @@ pub struct CreateExchangeRate {
     pub from_currency: String,
     pub to_currency: String,
     pub rate: f64,
-    pub rate_date: DateTime<Utc>,
-    pub source: String, // "api", "bank", "manual"
+    pub rate_date: Option<DateTime<Utc>>,
+    pub source: Option<String>, // "api", "bank", "manual", "scraper"
 }
 
 /// Data for updating an exchange rate
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpdateExchangeRate {
     pub rate: Option<f64>,
+    pub source: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ExchangeRateFilter {
+    #[serde(default = "default_page")]
+    pub page: i64,
+    #[serde(default = "default_page_size")]
+    pub page_size: i64,
+    pub from_currency: Option<String>,
+    pub to_currency: Option<String>,
+    pub source: Option<String>,
+    pub date: Option<chrono::NaiveDate>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CurrencyConversion {
+    pub from_currency: String,
+    pub to_currency: String,
+    pub amount: f64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ConversionResult {
+    pub from_currency: String,
+    pub to_currency: String,
+    pub amount: f64,
+    pub rate: f64,
+    pub converted_amount: f64,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct BulkDeleteParams {
+    pub from_currency: Option<String>,
+    pub date: Option<chrono::NaiveDate>,
     pub source: Option<String>,
 }
 
@@ -362,6 +397,7 @@ pub enum ExchangeRateSource {
     Api,
     Bank,
     Manual,
+    Scraper,
 }
 
 impl ExchangeRateSource {
@@ -370,6 +406,7 @@ impl ExchangeRateSource {
             ExchangeRateSource::Api => "api",
             ExchangeRateSource::Bank => "bank",
             ExchangeRateSource::Manual => "manual",
+            ExchangeRateSource::Scraper => "scraper",
         }
     }
 
@@ -378,6 +415,7 @@ impl ExchangeRateSource {
             "api" => Some(ExchangeRateSource::Api),
             "bank" => Some(ExchangeRateSource::Bank),
             "manual" => Some(ExchangeRateSource::Manual),
+            "scraper" => Some(ExchangeRateSource::Scraper),
             _ => None,
         }
     }
@@ -463,8 +501,10 @@ pub struct TransactionFilter {
     pub end_date: Option<DateTime<Utc>>,
     pub min_amount: Option<f64>,
     pub max_amount: Option<f64>,
-    #[serde(flatten)]
-    pub pagination: PaginationParams,
+    #[serde(default = "default_page")]
+    pub page: i64,
+    #[serde(default = "default_page_size")]
+    pub page_size: i64,
 }
 
 // ============================================================================

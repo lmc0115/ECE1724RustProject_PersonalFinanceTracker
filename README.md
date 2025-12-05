@@ -1,5 +1,5 @@
 # Personal Finance Tracker - Project Proposal
-
+---
 
 ### **Team Menbers**  
 | Name | Student ID | Email |   
@@ -7,6 +7,7 @@
 | Muchen Liu | 1006732145 | muchen.liu@mail.utoronto.ca |
 | Ping Shu | 1010506365 | pings.shu@mail.utoronta.ca | 
 | Ziang Wang | 1006912370 | ziang.wang@mail.utoronto.ca |
+---
 
 
 ## **1. Motivation**
@@ -21,7 +22,7 @@ Generally, the motivation behind our project comes from three main drivers:
 - **Practical need** — addressing a real-world problem in personal finance management.
 - **Personal satisfaction** — working on a project that is both fun and directly applicable to people’s lives satisfied our team a lot.
 - **Community contribution** — filling a gap in Rust’s ecosystem that potentially inspires future applications. 
-
+---
 
 
 ## **2. Project Objectives and Key Features**
@@ -209,18 +210,19 @@ By incorporating reliable storage, expressive TUI components, and back-end integ
 
 ---
 
-### **Note: Agile Approach**
+### **Note: Agile Approach**     
 
 This plan is tentative and will be adjusted as we progress.  
 We expect to iterate on earlier components (database, API) as we learn from implementing later features (TUI, analysis).
 
 
-
+---
 ## 4. Project Setup (One-Time Setup Only)
+
 This setup process only needs to be run ONCE when you first clone the repository.
 After completing these steps, you can start developing immediately without repeating the setup process. The database and environment configuration will persist for all future development sessions.
----
 
+---
 ### Prerequisites
 Before starting, ensure you have:
 - Rust and Cargo installed
@@ -261,14 +263,16 @@ sqlite3 {your-own-db-name}.db ".tables"
 
 ## Populate some original data into db
 cargo run db_seed
+cargo run scrape_rates
 
-# Other commands
+# Other related commands (no need to run at testing phase)
 cargo run db_clear   // Clear all of data in the db
 cargo run db_reseed   // Clear and re-seed database
+cargo run scrape_rates XXX    Scrape latest FX rates for the specific currency code XXX
 cargo run help    // Print out the help text
 ```
 
-
+---
 ## 5. Running the API Server
 
 After completing the one-time setup, you can start the REST API server by:
@@ -290,5 +294,43 @@ API Documentation:
 - Categories:   GET/POST    /categories   
 - Category:     GET/PUT/DEL /categories/{id}   
 - Transactions: GET/POST    /transactions   
-- Transaction:  GET/PUT/DEL /transactions/{id}      
+- Transaction:  GET/PUT/DEL /transactions/{id}  
+- Exchange Rates:   GET/POST    /exchange-rates    
+- Exchange Rate:    GET/PUT/DEL /exchange-rates/{id}      
+- Latest Rates:     GET         /exchange-rates/latest/{from_currency}   
+- Convert Currency: GET         /exchange-rates/convert?from={from}&to={to}&amount={amount}   
+- Bulk Delete:      DELETE      /exchange-rates/bulk?from_currency={currency}&date={date}&source={source}    
 
+**For detailed API documentation, see [API Guide](./README_API.md).**
+
+
+---
+## 6. Enter into text user interface
+Keep the server running, open a new terminal to run the following command:
+```sh
+cargo run tui
+```
+to enter into a text user interface, built with Ratatui package.
+
+
+---
+## Notes
+
+### Transaction Balance Updates
+- Creating `income` transaction: `current_balance += amount`
+- Creating `expense` transaction: `current_balance -= amount`
+- Deleting transaction: automatically reverses the balance change
+
+### Exchange Rate Features
+- Supports manual entry, API import, and web scraping
+- Smart duplicate detection (checks date before scraping)
+- Currency conversion uses most recent rate
+- Partial matching on `to_currency` (searches for code in parentheses)
+- Currency format: "Currency Name (CODE)" e.g., "Euro (EUR)"
+
+### Scraper Features
+- Scrapes from X-Rates website
+- Extracts timestamp from page
+- Only saves date (not time) for rate_date
+- Stores with source = "scraper"
+- Avoids duplicate scraping for same date
