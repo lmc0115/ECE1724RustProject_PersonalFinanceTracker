@@ -732,6 +732,25 @@ pub async fn clear_database(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     sqlx::query!("DELETE FROM categories").execute(pool).await?;
     sqlx::query!("DELETE FROM users").execute(pool).await?;
 
+    // ******************* Need to discuss whether to reset AUTOINCREMENT counters*********************
+    // // Reset AUTOINCREMENT counters so IDs start from 1 again on next insert.  Bugfix for SQLite.
+    // sqlx::query!(
+    //     r#"
+    //     DELETE FROM sqlite_sequence
+    //     WHERE name IN (
+    //         'users',
+    //         'accounts',
+    //         'categories',
+    //         'transactions',
+    //         'transaction_categories',
+    //         'recurring_transactions',
+    //         'exchange_rates'
+    //     )
+    //     "#
+    // )
+    // .execute(pool)
+    // .await?;
+
     println!("   ✓ All data cleared");
 
     Ok(())
