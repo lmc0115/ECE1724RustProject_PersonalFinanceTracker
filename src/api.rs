@@ -1,4 +1,4 @@
-use crate::models::*;
+﻿use crate::models::*;
 use actix_web::{delete, get, post, put, web, HttpResponse, Responder};
 use chrono::{TimeZone, Utc};
 use sqlx::SqlitePool;
@@ -705,9 +705,53 @@ async fn update_transaction(
 
 /// DELETE /transactions/{id} - Delete transaction
 #[delete("/transactions/{id}")]
-async fn delete_transaction(pool: web::Data<SqlitePool>, id: web::Path<i64>) -> impl Responder {
+async fn delete_transaction(
+    pool: web::Data<SqlitePool>,
+    id: web::Path<i64>,
+) -> impl Responder {
     let id = id.into_inner();
 
+    // 1. Fetch the transaction so we know its amount, type, and account
+    let existing_txn =
+        sqlx::query_as::<_, Transaction>("SELECT * FROM transactions WHERE id = ?")
+            .bind(id)
+            .fetch_optional(pool.get_ref())
+            .await;
+
+    let txn = match existing_txn {
+        Ok(Some(txn)) => txn,
+        Ok(None) => {
+            return HttpResponse::NotFound()
+                .json(ApiResponse::<()>::error("Transaction not found".into()))
+        }
+        Err(e) => {
+            return HttpResponse::InternalServerError()
+                .json(ApiResponse::<()>::error(e.to_string()))
+        }
+    };
+
+    // 2. Compute the reverse balance change
+    let balance_change = if txn.transaction_type == "income" {
+        // Creation: +amount  → Deletion: -amount
+        -txn.amount
+    } else {
+        // Creation: -amount.abs() → Deletion: +amount.abs()
+        txn.amount.abs()
+    };
+
+    // 3. Delete any related transaction_categories rows (if you have them)
+    if let Err(e) = sqlx::query(
+        "DELETE FROM transaction_categories WHERE transaction_id = ?",
+    )
+    .bind(id)
+    .execute(pool.get_ref())
+    .await
+    {
+        return HttpResponse::InternalServerError()
+            .json(ApiResponse::<()>::error(e.to_string()));
+    }
+
+    // 4. Delete the transaction itself
     let result = sqlx::query("DELETE FROM transactions WHERE id = ?")
         .bind(id)
         .execute(pool.get_ref())
@@ -716,13 +760,27 @@ async fn delete_transaction(pool: web::Data<SqlitePool>, id: web::Path<i64>) -> 
     match result {
         Ok(result) => {
             if result.rows_affected() > 0 {
-                HttpResponse::Ok().json(ApiResponse::success("Transaction deleted successfully"))
+                // 5. Apply the balance update to the account
+                let _ = sqlx::query(
+                    "UPDATE accounts SET current_balance = current_balance + ? WHERE id = ?",
+                )
+                .bind(balance_change)
+                .bind(txn.account_id)
+                .execute(pool.get_ref())
+                .await;
+
+                HttpResponse::Ok().json(ApiResponse::success(
+                    "Transaction deleted successfully",
+                ))
             } else {
+                // Shouldn’t really happen since we already fetched it,
+                // but keep the check for safety.
                 HttpResponse::NotFound()
                     .json(ApiResponse::<()>::error("Transaction not found".into()))
             }
         }
-        Err(e) => HttpResponse::InternalServerError().json(ApiResponse::<()>::error(e.to_string())),
+        Err(e) => HttpResponse::InternalServerError()
+            .json(ApiResponse::<()>::error(e.to_string())),
     }
 }
 
