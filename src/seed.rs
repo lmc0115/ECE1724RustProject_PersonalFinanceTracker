@@ -20,7 +20,6 @@ pub async fn seed_database(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     seed_transactions(pool).await?;
     seed_transaction_categories(pool).await?;
     seed_recurring_transactions(pool).await?;
-    seed_exchange_rates(pool).await?;
 
     println!();
     println!("✅ Database seeding completed successfully!");
@@ -635,50 +634,6 @@ async fn seed_recurring_transactions(pool: &SqlitePool) -> Result<(), sqlx::Erro
     Ok(())
 }
 
-/// Seed exchange_rates table
-async fn seed_exchange_rates(pool: &SqlitePool) -> Result<(), sqlx::Error> {
-    println!("💱 Seeding exchange rates...");
-
-    let now = Utc::now();
-    let yesterday = now - Duration::days(1);
-
-    let rates = vec![
-        // Today's rates
-        ("USD", "EUR", 0.92, now, "api"),
-        ("USD", "GBP", 0.79, now, "api"),
-        ("USD", "JPY", 149.50, now, "api"),
-        ("USD", "CNY", 7.24, now, "api"),
-        ("USD", "CAD", 1.36, now, "api"),
-        ("EUR", "USD", 1.09, now, "api"),
-        ("EUR", "GBP", 0.86, now, "api"),
-        ("GBP", "USD", 1.27, now, "api"),
-        // Yesterday's rates (for historical comparison)
-        ("USD", "EUR", 0.93, yesterday, "api"),
-        ("USD", "GBP", 0.80, yesterday, "api"),
-        ("USD", "JPY", 148.80, yesterday, "api"),
-    ];
-
-    for (from, to, rate, date, source) in rates.iter() {
-        sqlx::query!(
-            r#"
-            INSERT INTO exchange_rates 
-            (from_currency, to_currency, rate, rate_date, source)
-            VALUES (?, ?, ?, ?, ?)
-            "#,
-            from,
-            to,
-            rate,
-            date,
-            source
-        )
-        .execute(pool)
-        .await?;
-    }
-
-    println!("   ✓ Created {} exchange rates", rates.len());
-    Ok(())
-}
-
 /// Print a summary of seeded data
 async fn print_seed_summary(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     let users: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users")
@@ -696,24 +651,20 @@ async fn print_seed_summary(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     let recurring: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM recurring_transactions")
         .fetch_one(pool)
         .await?;
-    let rates: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM exchange_rates")
-        .fetch_one(pool)
-        .await?;
 
-    println!("📊 Seed Summary:");
+    println!("Seed Summary:");
     println!("   • {} users", users);
     println!("   • {} accounts", accounts);
     println!("   • {} categories", categories);
     println!("   • {} transactions", transactions);
     println!("   • {} recurring transactions", recurring);
-    println!("   • {} exchange rates", rates);
 
     Ok(())
 }
 
 /// Clear all data from the database (useful for re-seeding)
 pub async fn clear_database(pool: &SqlitePool) -> Result<(), sqlx::Error> {
-    println!("🗑️  Clearing database...");
+    println!(" Clearing database...");
 
     // Delete in reverse order of foreign key dependencies
     sqlx::query!("DELETE FROM transaction_categories")
@@ -728,6 +679,7 @@ pub async fn clear_database(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     sqlx::query!("DELETE FROM exchange_rates")
         .execute(pool)
         .await?;
+
     sqlx::query!("DELETE FROM accounts").execute(pool).await?;
     sqlx::query!("DELETE FROM categories").execute(pool).await?;
     sqlx::query!("DELETE FROM users").execute(pool).await?;

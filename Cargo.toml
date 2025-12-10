@@ -31,15 +31,21 @@ dotenvy = "0.15"
 
 # Error handling
 anyhow = "1.0"
-thiserror = "1.0"
+thiserror = "2.0"
 
 # TUI dependencies
 ratatui = "0.29.0"
 crossterm = "0.29.0"
 
+# Scraping Foreign Exchange Rates
+reqwest = { version = "0.12", features = ["json"] }
+scraper = "0.24"
+futures = "0.3"
+
 [dev-dependencies]
 # Testing
 tokio-test = "0.4"
+
 
 [features]
 default = []

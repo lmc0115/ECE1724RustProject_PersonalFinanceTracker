@@ -26,6 +26,7 @@ enum Screen {
     Accounts,
     Transactions,
     Categories,
+    ExchangeRates,
     Reports,
 }
 
@@ -33,8 +34,10 @@ enum Screen {
 enum Mode {
     Normal,
     AddTransaction,
+    AddExchangeRate,
     DeleteConfirm,
     ViewDetails,
+    ConvertCurrency,
 }
 
 pub struct App {
@@ -52,6 +55,7 @@ pub struct App {
     transactions: Vec<Transaction>,
     categories: Vec<Category>,
     users: Vec<User>,
+    exchange_rates: Vec<ExchangeRate>,
 
     // Selection state
     selected_index: usize,
@@ -64,6 +68,18 @@ pub struct App {
     form_description: String,
     form_category_id: String,
     form_field_index: usize,
+
+    // Form data for adding exchange rate
+    form_from_currency: String,
+    form_to_currency: String,
+    form_rate: String,
+    form_source: String,
+
+    // Form data for currency conversion
+    form_convert_from: String,
+    form_convert_to: String,
+    form_convert_amount: String,
+    form_converted_result: String,
 
     // Status message
     status_message: String,
@@ -82,6 +98,7 @@ impl App {
             transactions: Vec::new(),
             categories: Vec::new(),
             users: Vec::new(),
+            exchange_rates: Vec::new(),
             selected_index: 0,
             list_state: ListState::default(),
             form_account_id: String::new(),
@@ -90,6 +107,14 @@ impl App {
             form_description: String::new(),
             form_category_id: String::new(),
             form_field_index: 0,
+            form_from_currency: String::new(),
+            form_to_currency: String::new(),
+            form_rate: String::new(),
+            form_source: String::from("manual"),
+            form_convert_from: String::new(),
+            form_convert_to: String::new(),
+            form_convert_amount: String::new(),
+            form_converted_result: String::new(),
             status_message: String::new(),
         }
     }
@@ -187,6 +212,15 @@ impl App {
         {
             self.categories = categories;
         }
+
+        if let Ok(rates) = sqlx::query_as::<_, ExchangeRate>(
+            "SELECT * FROM exchange_rates ORDER BY rate_date DESC, from_currency LIMIT 100",
+        )
+        .fetch_all(&self.pool)
+        .await
+        {
+            self.exchange_rates = rates;
+        }
     }
 
     fn ui(&self, frame: &mut Frame) {
@@ -218,10 +252,13 @@ impl App {
                 Screen::Accounts => self.render_accounts(frame, chunks[2]),
                 Screen::Transactions => self.render_transactions(frame, chunks[2]),
                 Screen::Categories => self.render_categories(frame, chunks[2]),
+                Screen::ExchangeRates => self.render_exchange_rates(frame, chunks[2]),
                 Screen::Reports => self.render_reports(frame, chunks[2]),
                 Screen::UserSelect => {}
             },
             Mode::AddTransaction => self.render_add_transaction_form(frame, chunks[2]),
+            Mode::AddExchangeRate => self.render_add_exchange_rate_form(frame, chunks[2]),
+            Mode::ConvertCurrency => self.render_currency_conversion(frame, chunks[2]),
             Mode::DeleteConfirm => self.render_delete_confirm(frame, chunks[2]),
             Mode::ViewDetails => self.render_details(frame, chunks[2]),
         }
@@ -306,6 +343,8 @@ impl App {
         let mode_indicator = match self.mode {
             Mode::Normal => "",
             Mode::AddTransaction => " [ADD MODE]",
+            Mode::AddExchangeRate => " [ADD EXCHANGE RATE]",
+            Mode::ConvertCurrency => " [CONVERT CURRENCY]",
             Mode::DeleteConfirm => " [DELETE CONFIRM]",
             Mode::ViewDetails => " [DETAILS]",
         };
@@ -340,6 +379,7 @@ impl App {
             "Accounts",
             "Transactions",
             "Categories",
+            "Exchange Rates",
             "Reports",
         ];
         let tabs = Tabs::new(titles)
@@ -591,6 +631,63 @@ impl App {
         frame.render_widget(right_list, chunks[1]);
     }
 
+    fn render_exchange_rates(&self, frame: &mut Frame, area: ratatui::layout::Rect) {
+        let rate_items: Vec<ListItem> = self
+            .exchange_rates
+            .iter()
+            .enumerate()
+            .map(|(i, r)| {
+                let style = if i == self.selected_index {
+                    Style::default()
+                        .bg(Color::DarkGray)
+                        .add_modifier(Modifier::BOLD)
+                } else if i % 2 == 0 {
+                    Style::default()
+                } else {
+                    Style::default().bg(Color::Rgb(30, 30, 30))
+                };
+
+                let date_str = r.rate_date.format("%Y-%m-%d").to_string();
+
+                // Truncate long currency names for display
+                let to_curr_display = if r.to_currency.len() > 25 {
+                    format!("{}...", &r.to_currency[..22])
+                } else {
+                    r.to_currency.clone()
+                };
+
+                ListItem::new(Line::from(vec![
+                    Span::styled(
+                        format!("{:<5}", r.from_currency),
+                        Style::default().fg(Color::Cyan),
+                    ),
+                    Span::styled(" → ", Style::default().fg(Color::Gray)),
+                    Span::styled(
+                        format!("{:<26}", to_curr_display),
+                        Style::default().fg(Color::White),
+                    ),
+                    Span::styled(
+                        format!("{:>12.6}", r.rate),
+                        Style::default().fg(Color::Green),
+                    ),
+                    Span::styled(format!("  {}", date_str), Style::default().fg(Color::Gray)),
+                    Span::styled(
+                        format!(" [{}]", r.source),
+                        Style::default().fg(Color::Yellow),
+                    ),
+                ]))
+                .style(style)
+            })
+            .collect();
+
+        let list =
+            List::new(rate_items).block(Block::default().borders(Borders::ALL).title(format!(
+                "Exchange Rates ({}) - a: Add | c: Convert | d: Delete | Enter: Details",
+                self.exchange_rates.len()
+            )));
+        frame.render_widget(list, area);
+    }
+
     fn render_reports(&self, frame: &mut Frame, area: ratatui::layout::Rect) {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
@@ -792,6 +889,168 @@ impl App {
         frame.render_widget(form, area);
     }
 
+    fn render_add_exchange_rate_form(&self, frame: &mut Frame, area: ratatui::layout::Rect) {
+        let form_text = vec![
+            Line::from(vec![Span::styled(
+                "Add New Exchange Rate",
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            )]),
+            Line::from(""),
+            Line::from(vec![
+                Span::styled(
+                    "From Currency (e.g., USD): ",
+                    Style::default().fg(Color::Gray),
+                ),
+                Span::styled(
+                    &self.form_from_currency,
+                    if self.form_field_index == 0 {
+                        Style::default()
+                            .fg(Color::Yellow)
+                            .add_modifier(Modifier::UNDERLINED)
+                    } else {
+                        Style::default().fg(Color::White)
+                    },
+                ),
+            ]),
+            Line::from(vec![
+                Span::styled(
+                    "To Currency (e.g., Euro (EUR)): ",
+                    Style::default().fg(Color::Gray),
+                ),
+                Span::styled(
+                    &self.form_to_currency,
+                    if self.form_field_index == 1 {
+                        Style::default()
+                            .fg(Color::Yellow)
+                            .add_modifier(Modifier::UNDERLINED)
+                    } else {
+                        Style::default().fg(Color::White)
+                    },
+                ),
+            ]),
+            Line::from(vec![
+                Span::styled("Rate: ", Style::default().fg(Color::Gray)),
+                Span::styled(
+                    &self.form_rate,
+                    if self.form_field_index == 2 {
+                        Style::default()
+                            .fg(Color::Yellow)
+                            .add_modifier(Modifier::UNDERLINED)
+                    } else {
+                        Style::default().fg(Color::White)
+                    },
+                ),
+            ]),
+            Line::from(vec![
+                Span::styled(
+                    "Source (manual/api/scraper): ",
+                    Style::default().fg(Color::Gray),
+                ),
+                Span::styled(
+                    &self.form_source,
+                    if self.form_field_index == 3 {
+                        Style::default()
+                            .fg(Color::Yellow)
+                            .add_modifier(Modifier::UNDERLINED)
+                    } else {
+                        Style::default().fg(Color::White)
+                    },
+                ),
+            ]),
+            Line::from(""),
+            Line::from(vec![Span::styled(
+                "Tab: Next field | Shift+Tab: Previous | Enter: Submit | Esc: Cancel",
+                Style::default().fg(Color::Cyan),
+            )]),
+        ];
+
+        let form = Paragraph::new(form_text)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title("Add Exchange Rate Form"),
+            )
+            .alignment(Alignment::Left);
+        frame.render_widget(form, area);
+    }
+
+    fn render_currency_conversion(&self, frame: &mut Frame, area: ratatui::layout::Rect) {
+        let form_text = vec![
+            Line::from(vec![Span::styled(
+                "Currency Conversion",
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            )]),
+            Line::from(""),
+            Line::from(vec![
+                Span::styled("From Currency: ", Style::default().fg(Color::Gray)),
+                Span::styled(
+                    &self.form_convert_from,
+                    if self.form_field_index == 0 {
+                        Style::default()
+                            .fg(Color::Yellow)
+                            .add_modifier(Modifier::UNDERLINED)
+                    } else {
+                        Style::default().fg(Color::White)
+                    },
+                ),
+            ]),
+            Line::from(vec![
+                Span::styled("To Currency: ", Style::default().fg(Color::Gray)),
+                Span::styled(
+                    &self.form_convert_to,
+                    if self.form_field_index == 1 {
+                        Style::default()
+                            .fg(Color::Yellow)
+                            .add_modifier(Modifier::UNDERLINED)
+                    } else {
+                        Style::default().fg(Color::White)
+                    },
+                ),
+            ]),
+            Line::from(vec![
+                Span::styled("Amount: ", Style::default().fg(Color::Gray)),
+                Span::styled(
+                    &self.form_convert_amount,
+                    if self.form_field_index == 2 {
+                        Style::default()
+                            .fg(Color::Yellow)
+                            .add_modifier(Modifier::UNDERLINED)
+                    } else {
+                        Style::default().fg(Color::White)
+                    },
+                ),
+            ]),
+            Line::from(""),
+            Line::from(vec![
+                Span::styled("Result: ", Style::default().fg(Color::Gray)),
+                Span::styled(
+                    &self.form_converted_result,
+                    Style::default()
+                        .fg(Color::Green)
+                        .add_modifier(Modifier::BOLD),
+                ),
+            ]),
+            Line::from(""),
+            Line::from(vec![Span::styled(
+                "Tab: Next field | Enter: Convert | Esc: Cancel",
+                Style::default().fg(Color::Cyan),
+            )]),
+        ];
+
+        let form = Paragraph::new(form_text)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title("Currency Conversion"),
+            )
+            .alignment(Alignment::Left);
+        frame.render_widget(form, area);
+    }
+
     fn render_delete_confirm(&self, frame: &mut Frame, area: ratatui::layout::Rect) {
         let confirm_text = if self.current_screen == Screen::Transactions
             && self.selected_index < self.transactions.len()
@@ -809,6 +1068,26 @@ impl App {
                     "Description: {}",
                     t.description.as_deref().unwrap_or("N/A")
                 )),
+                Line::from(""),
+                Line::from(vec![Span::styled(
+                    "Press 'y' to confirm, 'n' to cancel",
+                    Style::default().fg(Color::Yellow),
+                )]),
+            ]
+        } else if self.current_screen == Screen::ExchangeRates
+            && self.selected_index < self.exchange_rates.len()
+        {
+            let r = &self.exchange_rates[self.selected_index];
+            vec![
+                Line::from(vec![Span::styled(
+                    "Delete Exchange Rate?",
+                    Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+                )]),
+                Line::from(""),
+                Line::from(format!("From: {}", r.from_currency)),
+                Line::from(format!("To: {}", r.to_currency)),
+                Line::from(format!("Rate: {:.6}", r.rate)),
+                Line::from(format!("Date: {}", r.rate_date.format("%Y-%m-%d"))),
                 Line::from(""),
                 Line::from(vec![Span::styled(
                     "Press 'y' to confirm, 'n' to cancel",
@@ -893,6 +1172,41 @@ impl App {
                     Style::default().fg(Color::Gray),
                 )]),
             ]
+        } else if self.current_screen == Screen::ExchangeRates
+            && self.selected_index < self.exchange_rates.len()
+        {
+            let r = &self.exchange_rates[self.selected_index];
+            vec![
+                Line::from(vec![Span::styled(
+                    "Exchange Rate Details",
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
+                )]),
+                Line::from(""),
+                Line::from(format!("ID: {}", r.id)),
+                Line::from(format!("From Currency: {}", r.from_currency)),
+                Line::from(format!("To Currency: {}", r.to_currency)),
+                Line::from(format!("Rate: {:.6}", r.rate)),
+                Line::from(format!("Source: {}", r.source)),
+                Line::from(format!(
+                    "Rate Date: {}",
+                    r.rate_date.format("%Y-%m-%d %H:%M:%S")
+                )),
+                Line::from(format!(
+                    "Created: {}",
+                    r.created_at.format("%Y-%m-%d %H:%M:%S")
+                )),
+                Line::from(format!(
+                    "Updated: {}",
+                    r.updated_at.format("%Y-%m-%d %H:%M:%S")
+                )),
+                Line::from(""),
+                Line::from(vec![Span::styled(
+                    "Press Esc to go back",
+                    Style::default().fg(Color::Gray),
+                )]),
+            ]
         } else {
             vec![Line::from("No details available")]
         };
@@ -913,12 +1227,20 @@ impl App {
                 Mode::Normal => {
                     if self.current_screen == Screen::UserSelect {
                         Paragraph::new("Up/Down: Select user | Enter: Login | q: Quit")
+                    } else if self.current_screen == Screen::ExchangeRates {
+                        Paragraph::new("Left/Right or 1-6: Switch tabs | Up/Down: Select | a: Add | c: Convert | d: Delete | Enter: Details | r: Refresh | u: Switch user | q: Quit")
                     } else {
-                        Paragraph::new("Left/Right or 1-5: Switch tabs | Up/Down: Select | a: Add | d: Delete | Enter: Details | r: Refresh | u: Switch user | q: Quit")
+                        Paragraph::new("Left/Right or 1-6: Switch tabs | Up/Down: Select | a: Add | d: Delete | Enter: Details | r: Refresh | u: Switch user | q: Quit")
                     }
                 }
                 Mode::AddTransaction => Paragraph::new(
                     "Tab/Shift+Tab: Navigate fields | Type to input | Enter: Submit | Esc: Cancel"
+                ),
+                Mode::AddExchangeRate => Paragraph::new(
+                    "Tab/Shift+Tab: Navigate fields | Type to input | Enter: Submit | Esc: Cancel"
+                ),
+                Mode::ConvertCurrency => Paragraph::new(
+                    "Tab/Shift+Tab: Navigate fields | Type to input | Enter: Convert | Esc: Cancel"
                 ),
                 Mode::DeleteConfirm => Paragraph::new(
                     "y: Confirm delete | n: Cancel"
@@ -944,7 +1266,15 @@ impl App {
                     } else {
                         match self.mode {
                             Mode::Normal => self.handle_normal_mode(key.code).await,
-                            Mode::AddTransaction => self.handle_add_mode(key.code).await,
+                            Mode::AddTransaction => {
+                                self.handle_add_transaction_mode(key.code).await
+                            }
+                            Mode::AddExchangeRate => {
+                                self.handle_add_exchange_rate_mode(key.code).await
+                            }
+                            Mode::ConvertCurrency => {
+                                self.handle_convert_currency_mode(key.code).await
+                            }
                             Mode::DeleteConfirm => self.handle_delete_mode(key.code).await,
                             Mode::ViewDetails => self.handle_details_mode(key.code),
                         }
@@ -993,6 +1323,7 @@ impl App {
                 self.accounts.clear();
                 self.transactions.clear();
                 self.categories.clear();
+                self.exchange_rates.clear();
             }
             KeyCode::Char('r') => {
                 self.load_data().await;
@@ -1001,7 +1332,16 @@ impl App {
             KeyCode::Char('a') => {
                 if self.current_screen == Screen::Transactions {
                     self.mode = Mode::AddTransaction;
-                    self.clear_form();
+                    self.clear_transaction_form();
+                } else if self.current_screen == Screen::ExchangeRates {
+                    self.mode = Mode::AddExchangeRate;
+                    self.clear_exchange_rate_form();
+                }
+            }
+            KeyCode::Char('c') => {
+                if self.current_screen == Screen::ExchangeRates {
+                    self.mode = Mode::ConvertCurrency;
+                    self.clear_conversion_form();
                 }
             }
             KeyCode::Char('d') => {
@@ -1021,6 +1361,7 @@ impl App {
                     Screen::Accounts => self.accounts.len().saturating_sub(1),
                     Screen::Transactions => self.transactions.len().saturating_sub(1),
                     Screen::Categories => self.categories.len().saturating_sub(1),
+                    Screen::ExchangeRates => self.exchange_rates.len().saturating_sub(1),
                     _ => 0,
                 };
                 self.selected_index = (self.selected_index + 1).min(max);
@@ -1060,11 +1401,16 @@ impl App {
                 self.update_screen();
                 self.selected_index = 0;
             }
+            KeyCode::Char('6') => {
+                self.selected_tab = 5;
+                self.update_screen();
+                self.selected_index = 0;
+            }
             _ => {}
         }
     }
 
-    async fn handle_add_mode(&mut self, code: KeyCode) {
+    async fn handle_add_transaction_mode(&mut self, code: KeyCode) {
         match code {
             KeyCode::Esc => {
                 self.mode = Mode::Normal;
@@ -1107,6 +1453,89 @@ impl App {
             },
             KeyCode::Enter => {
                 self.submit_transaction().await;
+            }
+            _ => {}
+        }
+    }
+    async fn handle_add_exchange_rate_mode(&mut self, code: KeyCode) {
+        match code {
+            KeyCode::Esc => {
+                self.mode = Mode::Normal;
+            }
+            KeyCode::Tab => {
+                self.form_field_index = (self.form_field_index + 1) % 4;
+            }
+            KeyCode::BackTab => {
+                self.form_field_index = if self.form_field_index == 0 {
+                    3
+                } else {
+                    self.form_field_index - 1
+                };
+            }
+            KeyCode::Char(c) => match self.form_field_index {
+                0 => self.form_from_currency.push(c),
+                1 => self.form_to_currency.push(c),
+                2 => self.form_rate.push(c),
+                3 => self.form_source.push(c),
+                _ => {}
+            },
+            KeyCode::Backspace => match self.form_field_index {
+                0 => {
+                    self.form_from_currency.pop();
+                }
+                1 => {
+                    self.form_to_currency.pop();
+                }
+                2 => {
+                    self.form_rate.pop();
+                }
+                3 => {
+                    self.form_source.pop();
+                }
+                _ => {}
+            },
+            KeyCode::Enter => {
+                self.submit_exchange_rate().await;
+            }
+            _ => {}
+        }
+    }
+
+    async fn handle_convert_currency_mode(&mut self, code: KeyCode) {
+        match code {
+            KeyCode::Esc => {
+                self.mode = Mode::Normal;
+            }
+            KeyCode::Tab => {
+                self.form_field_index = (self.form_field_index + 1) % 3;
+            }
+            KeyCode::BackTab => {
+                self.form_field_index = if self.form_field_index == 0 {
+                    2
+                } else {
+                    self.form_field_index - 1
+                };
+            }
+            KeyCode::Char(c) => match self.form_field_index {
+                0 => self.form_convert_from.push(c),
+                1 => self.form_convert_to.push(c),
+                2 => self.form_convert_amount.push(c),
+                _ => {}
+            },
+            KeyCode::Backspace => match self.form_field_index {
+                0 => {
+                    self.form_convert_from.pop();
+                }
+                1 => {
+                    self.form_convert_to.pop();
+                }
+                2 => {
+                    self.form_convert_amount.pop();
+                }
+                _ => {}
+            },
+            KeyCode::Enter => {
+                self.perform_currency_conversion().await;
             }
             _ => {}
         }
@@ -1183,10 +1612,92 @@ impl App {
         self.mode = Mode::Normal;
     }
 
+    async fn submit_exchange_rate(&mut self) {
+        let rate = self.form_rate.parse::<f64>();
+
+        if self.form_from_currency.is_empty() || self.form_to_currency.is_empty() || rate.is_err() {
+            self.status_message = "Error: Invalid input! Check currencies and rate.".to_string();
+            self.mode = Mode::Normal;
+            return;
+        }
+
+        let rate = rate.unwrap();
+        let from_currency = &self.form_from_currency;
+        let to_currency = &self.form_to_currency;
+        let source = &self.form_source;
+
+        let result = sqlx::query(
+            "INSERT INTO exchange_rates (from_currency, to_currency, rate, rate_date, source) VALUES (?, ?, ?, datetime('now'), ?)"
+        )
+        .bind(from_currency)
+        .bind(to_currency)
+        .bind(rate)
+        .bind(source)
+        .execute(&self.pool)
+        .await;
+
+        match result {
+            Ok(res) => {
+                let rate_id = res.last_insert_rowid();
+                self.status_message = format!("Exchange rate added successfully! ID: {}", rate_id);
+                self.load_data().await;
+            }
+            Err(e) => {
+                self.status_message = format!("Error adding exchange rate: {}", e);
+            }
+        }
+
+        self.mode = Mode::Normal;
+    }
+
+    async fn perform_currency_conversion(&mut self) {
+        let amount = self.form_convert_amount.parse::<f64>();
+
+        if self.form_convert_from.is_empty() || self.form_convert_to.is_empty() || amount.is_err() {
+            self.form_converted_result = "Error: Invalid input!".to_string();
+            return;
+        }
+
+        let amount = amount.unwrap();
+        let from = &self.form_convert_from;
+        let to = &self.form_convert_to;
+
+        // Query the latest exchange rate
+        let rate: Result<Option<f64>, _> = sqlx::query_scalar(
+            "SELECT rate FROM exchange_rates 
+             WHERE from_currency = ? AND to_currency LIKE ?
+             ORDER BY rate_date DESC 
+             LIMIT 1",
+        )
+        .bind(from)
+        .bind(format!("%({})%", to))
+        .fetch_optional(&self.pool)
+        .await;
+
+        match rate {
+            Ok(Some(rate)) => {
+                let converted = amount * rate;
+                self.form_converted_result = format!(
+                    "{:.2} {} = {:.2} {} (rate: {:.6})",
+                    amount, from, converted, to, rate
+                );
+                self.status_message = "Conversion successful!".to_string();
+            }
+            Ok(None) => {
+                self.form_converted_result = format!("No rate found from {} to {}", from, to);
+            }
+            Err(e) => {
+                self.form_converted_result = format!("Database error: {}", e);
+            }
+        }
+    }
+
     async fn handle_delete_mode(&mut self, code: KeyCode) {
         match code {
             KeyCode::Char('y') | KeyCode::Char('Y') => {
-                if self.selected_index < self.transactions.len() {
+                if self.current_screen == Screen::Transactions
+                    && self.selected_index < self.transactions.len()
+                {
                     let transaction_id = self.transactions[self.selected_index].id;
 
                     let result = sqlx::query("DELETE FROM transactions WHERE id = ?")
@@ -1203,6 +1714,27 @@ impl App {
                         }
                         Err(e) => {
                             self.status_message = format!("Error deleting transaction: {}", e);
+                        }
+                    }
+                } else if self.current_screen == Screen::ExchangeRates
+                    && self.selected_index < self.exchange_rates.len()
+                {
+                    let rate_id = self.exchange_rates[self.selected_index].id;
+
+                    let result = sqlx::query("DELETE FROM exchange_rates WHERE id = ?")
+                        .bind(rate_id)
+                        .execute(&self.pool)
+                        .await;
+
+                    match result {
+                        Ok(_) => {
+                            self.status_message =
+                                format!("Exchange rate {} deleted successfully!", rate_id);
+                            self.load_data().await;
+                            self.selected_index = 0;
+                        }
+                        Err(e) => {
+                            self.status_message = format!("Error deleting exchange rate: {}", e);
                         }
                     }
                 }
@@ -1227,17 +1759,34 @@ impl App {
             1 => Screen::Accounts,
             2 => Screen::Transactions,
             3 => Screen::Categories,
-            4 => Screen::Reports,
+            4 => Screen::ExchangeRates,
+            5 => Screen::Reports,
             _ => Screen::Dashboard,
         };
     }
 
-    fn clear_form(&mut self) {
+    fn clear_transaction_form(&mut self) {
         self.form_account_id.clear();
         self.form_amount.clear();
         self.form_type = String::from("expense");
         self.form_description.clear();
         self.form_category_id.clear();
+        self.form_field_index = 0;
+    }
+
+    fn clear_exchange_rate_form(&mut self) {
+        self.form_from_currency.clear();
+        self.form_to_currency.clear();
+        self.form_rate.clear();
+        self.form_source = String::from("manual");
+        self.form_field_index = 0;
+    }
+
+    fn clear_conversion_form(&mut self) {
+        self.form_convert_from.clear();
+        self.form_convert_to.clear();
+        self.form_convert_amount.clear();
+        self.form_converted_result.clear();
         self.form_field_index = 0;
     }
 }
