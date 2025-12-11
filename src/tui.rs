@@ -276,8 +276,18 @@ impl App {
             self.categories = categories;
         }
 
+        // Load exchange rates - get the most recent rate for each currency pair
+        // Use subquery to get only the latest rate per pair to avoid duplicates
         if let Ok(rates) = sqlx::query_as::<_, ExchangeRate>(
-            "SELECT * FROM exchange_rates ORDER BY rate_date DESC, from_currency LIMIT 100",
+            "SELECT e1.* FROM exchange_rates e1
+             INNER JOIN (
+                 SELECT from_currency, to_currency, MAX(rate_date) as max_date
+                 FROM exchange_rates
+                 GROUP BY from_currency, to_currency
+             ) e2 ON e1.from_currency = e2.from_currency 
+                  AND e1.to_currency = e2.to_currency 
+                  AND e1.rate_date = e2.max_date
+             ORDER BY e1.from_currency, e1.to_currency",
         )
         .fetch_all(&self.pool)
         .await
@@ -3578,27 +3588,39 @@ impl App {
             return 1.0 / rate.rate;
         }
         
-        // Try via USD as intermediate
-        let from_to_usd = self.exchange_rates.iter()
-            .find(|r| Self::currencies_match(&r.from_currency, &from_code) && 
-                      Self::currencies_match(&r.to_currency, "USD"))
-            .map(|r| r.rate)
-            .or_else(|| self.exchange_rates.iter()
-                .find(|r| Self::currencies_match(&r.from_currency, "USD") && 
-                          Self::currencies_match(&r.to_currency, &from_code))
-                .map(|r| 1.0 / r.rate));
+        // Try triangulation via common intermediate currencies (USD, EUR, CAD, GBP)
+        let intermediates = ["USD", "EUR", "CAD", "GBP"];
         
-        let usd_to_target = self.exchange_rates.iter()
-            .find(|r| Self::currencies_match(&r.from_currency, "USD") && 
-                      Self::currencies_match(&r.to_currency, &to_code))
-            .map(|r| r.rate)
-            .or_else(|| self.exchange_rates.iter()
-                .find(|r| Self::currencies_match(&r.from_currency, &to_code) && 
-                          Self::currencies_match(&r.to_currency, "USD"))
-                .map(|r| 1.0 / r.rate));
-        
-        if let (Some(f), Some(t)) = (from_to_usd, usd_to_target) {
-            return f * t;
+        for intermediate in intermediates {
+            // Skip if intermediate is one of our currencies
+            if from_code == intermediate || to_code == intermediate {
+                continue;
+            }
+            
+            // Find rate from source to intermediate
+            let from_to_inter = self.exchange_rates.iter()
+                .find(|r| Self::currencies_match(&r.from_currency, &from_code) && 
+                          Self::currencies_match(&r.to_currency, intermediate))
+                .map(|r| r.rate)
+                .or_else(|| self.exchange_rates.iter()
+                    .find(|r| Self::currencies_match(&r.from_currency, intermediate) && 
+                              Self::currencies_match(&r.to_currency, &from_code))
+                    .map(|r| 1.0 / r.rate));
+            
+            // Find rate from intermediate to target
+            let inter_to_target = self.exchange_rates.iter()
+                .find(|r| Self::currencies_match(&r.from_currency, intermediate) && 
+                          Self::currencies_match(&r.to_currency, &to_code))
+                .map(|r| r.rate)
+                .or_else(|| self.exchange_rates.iter()
+                    .find(|r| Self::currencies_match(&r.from_currency, &to_code) && 
+                              Self::currencies_match(&r.to_currency, intermediate))
+                    .map(|r| 1.0 / r.rate));
+            
+            // If both rates found, return the combined rate
+            if let (Some(f), Some(t)) = (from_to_inter, inter_to_target) {
+                return f * t;
+            }
         }
         
         1.0 // Default to 1.0 if no rate found
