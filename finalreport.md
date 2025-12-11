@@ -82,8 +82,8 @@ The primary objective of this project was to develop a **complete, user-friendly
 | **Currency Conversion Calculator** | Convert amounts between currencies using live rates |
 | **View in Currency (Transactions)** | View all transactions converted to any target currency |
 | **View in Currency (Account)** | View account details with all amounts in chosen currency |
-| **Intelligent Rate Fallback** | Direct rate → Inverse rate → USD triangulation |
-| **Exchange Rate Scraping** | Fetch latest rates from X-Rates website |
+| **Intelligent Rate Fallback** | Direct rate → Inverse rate → Multi-currency triangulation (USD/EUR/CAD/GBP) |
+| **Exchange Rate Scraping** | Fetch latest rates from X-Rates (4 base currencies: USD, EUR, CAD, GBP × 50+ targets) |
 | **Spending Analytics** | Top spending categories with visual bar charts |
 | **Data Export** | Export to CSV and JSON formats |
 | **Account Transaction View** | View all transactions under each account with full details |
@@ -226,9 +226,14 @@ This feature allows you to view all transaction amounts converted to a single cu
 | Cancel | `Esc` |
 
 The system uses exchange rates from the database, with intelligent fallback:
-- Direct rate if available
-- Inverse rate (1/rate) if reverse exists
-- Triangulation via USD if needed
+- Direct rate if available (e.g., USD → CZK)
+- Inverse rate (1/rate) if reverse exists (e.g., CZK → USD inverted)
+- Multi-currency triangulation via USD, EUR, CAD, or GBP as intermediates
+
+**Technical Details:**
+- Exchange rates are loaded with deduplication (only latest rate per currency pair)
+- Currency codes are extracted from full names (e.g., "Czech Koruna (CZK)" → "CZK")
+- This ensures "USD" matches "US Dollar (USD)" for reliable rate lookup
 
 ### 4.9 Currency Conversion Calculator
 
@@ -303,9 +308,15 @@ sqlite3 personal-finance-tracker.db ".tables"
 # Populate database with sample data (users, accounts, transactions)
 cargo run db_seed
 
-# Fetch latest exchange rates
+# Fetch latest exchange rates (scrapes USD, EUR, CAD, GBP as base currencies)
+# This creates ~200 exchange rate pairs for currency conversion
 cargo run scrape_rates
+
+# Optional: Scrape additional base currency (e.g., JPY)
+cargo run scrape_rates JPY
 ```
+
+**Note:** Exchange rates are required for the "View in Currency" feature to work correctly. Running `scrape_rates` fetches rates for 4 base currencies, enabling conversion between any of the 50+ supported currencies through direct rates or triangulation.
 
 ### 5.6 Build and Run
 
@@ -433,6 +444,14 @@ Building with ratatui taught us about:
 - Building scrollable dialogs with Enter-to-select pattern for better UX
 - Managing separate state for different contexts (e.g., account view currency vs transaction view currency)
 
+**Multi-Currency Handling:**
+Implementing currency conversion across 50+ currencies taught us:
+- The importance of normalizing data formats (currency codes vs full names like "Czech Koruna (CZK)")
+- How to extract currency codes from various string formats using pattern matching
+- Triangulation strategies when direct exchange rates don't exist
+- Smart database queries that deduplicate and get only the latest rates per currency pair
+- The value of trying multiple intermediate currencies (USD, EUR, CAD, GBP) for robust conversion
+
 ### 7.2 Project Management Lessons
 
 **Iterative Development:**
@@ -490,8 +509,23 @@ We hope this project inspires other Rust developers to build practical applicati
 | TUI Screens | 8 |
 | TUI Modes | 14 (Normal, AddTransaction, ViewDetails, SelectViewCurrency, etc.) |
 | Supported Currencies | 50+ (from FX rates database) |
+| Exchange Rate Pairs | ~200 (4 base currencies × 50+ targets, deduplicated) |
+| Triangulation Intermediates | 4 (USD, EUR, CAD, GBP) |
 | Keyboard Shortcuts | 35+ (cross-platform compatible) |
 | Scrollable Dialogs | 2 (Currency Filter, View in Currency) |
+
+### Exchange Rate System Architecture
+
+The exchange rate system is designed for reliability and completeness:
+
+1. **Data Collection**: Scrapes X-Rates.com for 4 base currencies (USD, EUR, CAD, GBP), each providing rates to ~50 target currencies
+2. **Smart Loading**: Uses SQL query with GROUP BY to load only the latest rate per currency pair, avoiding duplicates from multiple scrapes
+3. **Currency Normalization**: Extracts 3-letter codes from full names (e.g., "Czech Koruna (CZK)" → "CZK") for reliable matching
+4. **Flexible Matching**: Compares currencies by code, not string, so "USD" matches "US Dollar (USD)"
+5. **Multi-Level Fallback**:
+   - Direct rate lookup
+   - Inverse rate calculation (1/rate)
+   - Triangulation through USD, EUR, CAD, or GBP as intermediates
 
 ---
 
