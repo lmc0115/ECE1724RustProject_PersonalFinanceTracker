@@ -13,6 +13,7 @@ pub struct User {
     pub username: String,
     pub email: String,
     #[serde(skip_serializing)] // Don't expose password hash in JSON responses
+    #[allow(dead_code)]
     pub password_hash: String,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -167,6 +168,7 @@ pub struct TransactionCategoryDetail {
 
 /// Transaction_Category entity - links transactions to categories
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
+#[allow(dead_code)]
 pub struct TransactionCategory {
     pub id: i64,
     pub transaction_id: i64,
@@ -176,6 +178,7 @@ pub struct TransactionCategory {
 
 /// Data required to create a new transaction-category link
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(dead_code)]
 pub struct CreateTransactionCategory {
     pub transaction_id: i64,
     pub category_id: i64,
@@ -365,12 +368,14 @@ pub struct FinancialExportSummary {
 /// Account types
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[allow(dead_code)]
 pub enum AccountType {
     Checking,
     Savings,
     CreditCard,
 }
 
+#[allow(dead_code)]
 impl AccountType {
     pub fn as_str(&self) -> &'static str {
         match self {
@@ -393,12 +398,14 @@ impl AccountType {
 /// Transaction types
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[allow(dead_code)]
 pub enum TransactionType {
     Income,
     Expense,
     Transfer,
 }
 
+#[allow(dead_code)]
 impl TransactionType {
     pub fn as_str(&self) -> &'static str {
         match self {
@@ -421,6 +428,7 @@ impl TransactionType {
 /// Frequency types for recurring transactions
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[allow(dead_code)]
 pub enum Frequency {
     Daily,
     Weekly,
@@ -428,6 +436,7 @@ pub enum Frequency {
     Yearly,
 }
 
+#[allow(dead_code)]
 impl Frequency {
     pub fn as_str(&self) -> &'static str {
         match self {
@@ -452,6 +461,7 @@ impl Frequency {
 /// Exchange rate source types
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[allow(dead_code)]
 pub enum ExchangeRateSource {
     Api,
     Bank,
@@ -459,6 +469,7 @@ pub enum ExchangeRateSource {
     Scraper,
 }
 
+#[allow(dead_code)]
 impl ExchangeRateSource {
     pub fn as_str(&self) -> &'static str {
         match self {
@@ -572,6 +583,7 @@ pub struct TransactionFilter {
 
 /// Account balance summary
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(dead_code)]
 pub struct AccountBalanceSummary {
     pub account_id: i64,
     pub account_name: String,
@@ -601,6 +613,7 @@ pub struct MonthlySummary {
 
 /// Currency balance
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(dead_code)]
 pub struct CurrencyBalance {
     pub currency: String,
     pub total_balance: f64,

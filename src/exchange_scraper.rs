@@ -7,13 +7,14 @@
 //   1) if db contains the date's FX rates already, no need to scrape.
 //.  2) if db doesn't contain the date's FX rates, scrape and insert.
 
-use chrono::{DateTime, NaiveDate, Utc};
+use chrono::{NaiveDate, Utc};
 use reqwest::Client;
 use scraper::{Html, Selector};
 use sqlx::SqlitePool;
 use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct ExchangeRate {
     pub from_currency: String,
     pub to_currency: String,

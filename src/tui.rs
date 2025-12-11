@@ -69,6 +69,7 @@ pub struct App {
 
     // Selection state
     selected_index: usize,
+    #[allow(dead_code)]
     list_state: ListState,
 
     // Form data for adding transaction
@@ -110,6 +111,7 @@ pub struct App {
     form_user_email: String,
 
     // Export options
+    #[allow(dead_code)]
     export_format: String,
     export_message: String,
 
@@ -1676,7 +1678,7 @@ impl App {
             ]),
             Line::from(""),
             Line::from(vec![Span::styled(
-                "Tab: Next field | Shift+Tab: Previous | Enter: Submit | Esc: Cancel",
+                "Tab: Next field | Enter: Submit | Esc: Cancel",
                 Style::default().fg(Color::Cyan),
             )]),
         ];
@@ -2058,19 +2060,19 @@ impl App {
                     if self.current_screen == Screen::UserSelect {
                         Paragraph::new("↑↓: Select | Enter: Login | a: Add | d: Delete | q: Quit")
                     } else if self.current_screen == Screen::Transactions {
-                        Paragraph::new("↑↓/PgUp/PgDn: Scroll | Home/End: Jump | a: Add | f: Filter | d: Delete | Enter: Details | r: Refresh | q: Quit")
+                        Paragraph::new("↑↓/[]: Scroll | g/G: Top/Bottom | a: Add | f: Filter | d: Delete | Enter: Details | r: Refresh | q: Quit")
                     } else if self.current_screen == Screen::ExchangeRates {
-                        Paragraph::new("↑↓/PgUp/PgDn: Scroll | Home/End: Jump | a: Add | c: Convert | d: Delete | Enter: Details | r: Refresh | q: Quit")
+                        Paragraph::new("↑↓/[]: Scroll | g/G: Top/Bottom | a: Add | c: Convert | d: Delete | Enter: Details | r: Refresh | q: Quit")
                     } else if self.current_screen == Screen::RecurringTransactions {
-                        Paragraph::new("↑↓/PgUp/PgDn: Scroll | Home/End: Jump | a: Add | p: Process | t: Toggle | d: Delete | r: Refresh | q: Quit")
+                        Paragraph::new("↑↓/[]: Scroll | g/G: Top/Bottom | a: Add | p: Process | t: Toggle | d: Delete | r: Refresh | q: Quit")
                     } else if self.current_screen == Screen::Export {
                         Paragraph::new("←/→ or 1-8: Tabs | e: Export data | r: Refresh | u: Switch user | q: Quit")
                     } else if self.current_screen == Screen::Dashboard {
                         Paragraph::new("←/→ or 1-8: Tabs | ↑/↓: Scroll | r: Refresh | u: Switch user | q: Quit")
                     } else if self.current_screen == Screen::Accounts {
-                        Paragraph::new("↑↓/PgUp/PgDn: Scroll | a: Add | d: Delete | Enter: Details | r: Refresh | q: Quit")
+                        Paragraph::new("↑↓/[]: Scroll | g/G: Top/Bottom | a: Add | d: Delete | Enter: Details | r: Refresh | q: Quit")
                     } else if self.current_screen == Screen::Categories {
-                        Paragraph::new("↑↓/PgUp/PgDn: Scroll | a: Add | d: Delete | r: Refresh | q: Quit")
+                        Paragraph::new("↑↓/[]: Scroll | g/G: Top/Bottom | a: Add | d: Delete | r: Refresh | q: Quit")
                     } else if self.current_screen == Screen::Reports {
                         Paragraph::new("←/→ or 1-8: Tabs | r: Refresh | u: Switch user | q: Quit")
                     } else {
@@ -2078,16 +2080,16 @@ impl App {
                     }
                 }
                 Mode::AddTransaction => Paragraph::new(
-                    "Tab/Shift+Tab: Navigate fields | Type to input | Enter: Submit | Esc: Cancel"
+                    "Tab: Next field | Enter: Submit | Esc: Cancel | (Tab cycles through fields)"
                 ),
                 Mode::AddExchangeRate => Paragraph::new(
-                    "Tab/Shift+Tab: Navigate fields | Type to input | Enter: Submit | Esc: Cancel"
+                    "Tab: Next field | Enter: Submit | Esc: Cancel | (Tab cycles through fields)"
                 ),
                 Mode::AddRecurringTransaction => Paragraph::new(
-                    "Tab/Shift+Tab: Navigate fields | Type to input | Enter: Submit | Esc: Cancel"
+                    "Tab: Next field | Enter: Submit | Esc: Cancel | (Tab cycles through fields)"
                 ),
                 Mode::AddAccount => Paragraph::new(
-                    "Tab/Shift+Tab: Navigate fields | Type to input | Enter: Submit | Esc: Cancel"
+                    "Tab: Next field | Enter: Submit | Esc: Cancel | (Tab cycles through fields)"
                 ),
                 Mode::AddCategory => Paragraph::new(
                     "Tab: Next field | Type to input | Enter: Submit | Esc: Cancel"
@@ -2096,7 +2098,7 @@ impl App {
                     "Tab: Next field | Type to input | Enter: Create User | Esc: Cancel"
                 ),
                 Mode::ConvertCurrency => Paragraph::new(
-                    "Tab/Shift+Tab: Navigate fields | Type to input | Enter: Convert | Esc: Cancel"
+                    "Tab: Next field | Enter: Convert | Esc: Cancel | (Tab cycles through fields)"
                 ),
                 Mode::DeleteConfirm => Paragraph::new(
                     "y: Confirm delete | n: Cancel"
@@ -2299,21 +2301,21 @@ impl App {
                 let max = self.get_current_list_len().saturating_sub(1);
                 self.selected_index = (self.selected_index + 1).min(max);
             }
-            KeyCode::PageUp => {
-                // Jump up 10 items
+            KeyCode::PageUp | KeyCode::Char('[') => {
+                // Jump up 10 items (PageUp or '[' for Mac compatibility)
                 self.selected_index = self.selected_index.saturating_sub(10);
             }
-            KeyCode::PageDown => {
-                // Jump down 10 items
+            KeyCode::PageDown | KeyCode::Char(']') => {
+                // Jump down 10 items (PageDown or ']' for Mac compatibility)
                 let max = self.get_current_list_len().saturating_sub(1);
                 self.selected_index = (self.selected_index + 10).min(max);
             }
-            KeyCode::Home => {
-                // Jump to first item
+            KeyCode::Home | KeyCode::Char('g') => {
+                // Jump to first item (Home or 'g' for Mac compatibility)
                 self.selected_index = 0;
             }
-            KeyCode::End => {
-                // Jump to last item
+            KeyCode::End | KeyCode::Char('G') => {
+                // Jump to last item (End or 'G' for Mac compatibility)
                 let max = self.get_current_list_len().saturating_sub(1);
                 self.selected_index = max;
             }
@@ -3641,7 +3643,7 @@ impl App {
         frame.render_widget(form, chunks[1]);
 
         // Instructions
-        let instructions = Paragraph::new("Tab: Next Field | Enter: Create User | Esc: Cancel")
+        let instructions = Paragraph::new("Tab: Next field | Enter: Create | Esc: Cancel")
             .style(Style::default().fg(Color::Cyan))
             .alignment(Alignment::Center)
             .block(Block::default().borders(Borders::ALL));
