@@ -118,7 +118,8 @@ pub struct App {
 
     // Currency filter for transactions view
     currency_filter: Option<String>,
-    available_currencies: Vec<String>,
+    filter_currencies: Vec<String>,  // Only currencies from user's transactions (for filter)
+    available_currencies: Vec<String>,  // All currencies from FX rates (for view in currency)
     
     // View in currency conversion
     view_in_currency: Option<String>,  // For Transactions screen - convert all amounts
@@ -174,6 +175,7 @@ impl App {
             export_format: String::from("csv"),
             export_message: String::new(),
             currency_filter: None,
+            filter_currencies: Vec::new(),
             available_currencies: Vec::new(),
             view_in_currency: None,
             account_view_currency: None,
@@ -353,7 +355,17 @@ impl App {
             self.category_spending = spending;
         }
 
-        // Collect all available currencies from accounts AND exchange rates
+        // Build filter_currencies: only currencies from accounts that have transactions
+        let mut filter_currency_codes: std::collections::HashSet<String> = std::collections::HashSet::new();
+        for t in &self.transactions {
+            if let Some(account) = self.accounts.iter().find(|a| a.id == t.account_id) {
+                filter_currency_codes.insert(account.currency.clone());
+            }
+        }
+        self.filter_currencies = filter_currency_codes.into_iter().collect();
+        self.filter_currencies.sort();
+        
+        // Collect all available currencies from accounts AND exchange rates (for View in Currency)
         // Use HashSet to deduplicate, but store as (code, display_name) pairs
         let mut currency_codes: std::collections::HashSet<String> = std::collections::HashSet::new();
         let mut code_to_display: std::collections::HashMap<String, String> = std::collections::HashMap::new();
@@ -383,7 +395,7 @@ impl App {
             }
         }
         
-        // Build available currencies list with nice display names
+        // Build available currencies list with nice display names (for View in Currency)
         self.available_currencies = currency_codes.into_iter()
             .map(|code| code_to_display.get(&code).cloned().unwrap_or(code))
             .collect();
@@ -1463,13 +1475,13 @@ impl App {
             Line::from(""),
         ];
 
-        // Add each available currency dynamically
-        if self.available_currencies.is_empty() {
+        // Add each currency from transactions dynamically (filter_currencies, not all available)
+        if self.filter_currencies.is_empty() {
             dialog_lines.push(Line::from(vec![Span::styled(
-                "No currencies found in accounts", Style::default().fg(Color::Red)
+                "No currencies found in transactions", Style::default().fg(Color::Red)
             )]));
         } else {
-            for (i, currency) in self.available_currencies.iter().enumerate() {
+            for (i, currency) in self.filter_currencies.iter().enumerate() {
                 let is_selected = self.currency_filter.as_ref() == Some(currency);
                 let key = if i < 9 { format!("{}", i + 1) } else { format!("{}", (b'a' + (i - 9) as u8) as char) };
                 let active_marker = if is_selected { " ◄ active" } else { "" };
@@ -1485,7 +1497,7 @@ impl App {
 
         dialog_lines.push(Line::from(""));
         dialog_lines.push(Line::from(vec![Span::styled(
-            format!("Found {} currencies | Press key to filter | Esc: cancel", self.available_currencies.len()),
+            format!("Found {} currencies in transactions | Press key to filter | Esc: cancel", self.filter_currencies.len()),
             Style::default().fg(Color::Gray),
         )]));
 
@@ -3357,8 +3369,8 @@ impl App {
             }
             KeyCode::Char(c) if c.is_ascii_digit() => {
                 let num = c.to_digit(10).unwrap() as usize;
-                if num > 0 && num <= self.available_currencies.len() {
-                    let currency = self.available_currencies[num - 1].clone();
+                if num > 0 && num <= self.filter_currencies.len() {
+                    let currency = self.filter_currencies[num - 1].clone();
                     self.status_message = format!("Filtering by {}", currency);
                     self.currency_filter = Some(currency);
                     self.selected_index = 0;
@@ -3368,8 +3380,8 @@ impl App {
             // Support letters a-z for currencies 10+
             KeyCode::Char(c) if c.is_ascii_lowercase() => {
                 let idx = (c as u8 - b'a') as usize + 9; // 'a' = index 9, 'b' = index 10, etc.
-                if idx < self.available_currencies.len() {
-                    let currency = self.available_currencies[idx].clone();
+                if idx < self.filter_currencies.len() {
+                    let currency = self.filter_currencies[idx].clone();
                     self.status_message = format!("Filtering by {}", currency);
                     self.currency_filter = Some(currency);
                     self.selected_index = 0;
