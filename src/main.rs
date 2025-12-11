@@ -39,6 +39,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                 println!("Server running at http://{}", bind_address);
                 println!("API Documentation:");
+                println!();
+                println!("  Core Endpoints:");
                 println!("   Users:        GET/POST    /users");
                 println!("   User:         GET/PUT/DEL /users/{{id}}");
                 println!("   Accounts:     GET/POST    /accounts");
@@ -47,14 +49,36 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 println!("   Category:     GET/PUT/DEL /categories/{{id}}");
                 println!("   Transactions: GET/POST    /transactions");
                 println!("   Transaction:  GET/PUT/DEL /transactions/{{id}}");
-                println!("   Exchange Rates:   GET/POST    /exchange-rates");
-                println!("   Exchange Rate:    GET/PUT/DEL /exchange-rates/{{id}}");
-                println!(
-                    "   Latest Rates:     GET         /exchange-rates/latest/{{from_currency}}"
-                );
-                println!("   Convert Currency: GET         /exchange-rates/convert?from={{from}}&to={{to}}&amount={{amount}}");
-                println!("   Bulk Delete:      DELETE      /exchange-rates/bulk?from_currency={{currency}}&date={{date}}&source={{source}}");
-
+                println!();
+                println!("  Recurring Transactions:");
+                println!("   List:         GET         /recurring-transactions");
+                println!("   Get:          GET         /recurring-transactions/{{id}}");
+                println!("   Create:       POST        /recurring-transactions");
+                println!("   Update:       PUT         /recurring-transactions/{{id}}");
+                println!("   Delete:       DELETE      /recurring-transactions/{{id}}");
+                println!("   Process Due:  POST        /recurring-transactions/process");
+                println!();
+                println!("  Exchange Rates:");
+                println!("   List:         GET         /exchange-rates");
+                println!("   Get:          GET         /exchange-rates/{{id}}");
+                println!("   Create:       POST        /exchange-rates");
+                println!("   Update:       PUT         /exchange-rates/{{id}}");
+                println!("   Delete:       DELETE      /exchange-rates/{{id}}");
+                println!("   Latest:       GET         /exchange-rates/latest/{{from_currency}}");
+                println!("   Convert:      GET         /exchange-rates/convert?from={{from}}&to={{to}}&amount={{amount}}");
+                println!("   Bulk Delete:  DELETE      /exchange-rates/bulk?from_currency={{currency}}&date={{date}}&source={{source}}");
+                println!();
+                println!("  Analytics & Insights:");
+                println!("   Category Spending: GET    /analytics/spending-by-category?user_id={{id}}");
+                println!("   Monthly Summary:   GET    /analytics/monthly-summary?user_id={{id}}");
+                println!("   Spending Compare:  GET    /analytics/spending-comparison?user_id={{id}}&current_start=...&current_end=...&previous_start=...&previous_end=...");
+                println!("   Top Categories:    GET    /analytics/top-categories?user_id={{id}}&limit={{n}}");
+                println!();
+                println!("  Data Export:");
+                println!("   Transactions CSV:  GET    /export/transactions/csv?user_id={{id}}&start_date=...&end_date=...");
+                println!("   Transactions JSON: GET    /export/transactions/json?user_id={{id}}");
+                println!("   Accounts CSV:      GET    /export/accounts/csv?user_id={{id}}");
+                println!("   Full Summary:      GET    /export/summary/json?user_id={{id}}");
                 println!();
 
                 HttpServer::new(move || {

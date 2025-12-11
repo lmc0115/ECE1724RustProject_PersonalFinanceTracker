@@ -13,6 +13,7 @@ pub struct User {
     pub username: String,
     pub email: String,
     #[serde(skip_serializing)] // Don't expose password hash in JSON responses
+    #[allow(dead_code)]
     pub password_hash: String,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -167,6 +168,7 @@ pub struct TransactionCategoryDetail {
 
 /// Transaction_Category entity - links transactions to categories
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
+#[allow(dead_code)]
 pub struct TransactionCategory {
     pub id: i64,
     pub transaction_id: i64,
@@ -176,6 +178,7 @@ pub struct TransactionCategory {
 
 /// Data required to create a new transaction-category link
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(dead_code)]
 pub struct CreateTransactionCategory {
     pub transaction_id: i64,
     pub category_id: i64,
@@ -299,6 +302,65 @@ pub struct BulkDeleteParams {
     pub source: Option<String>,
 }
 
+/// Recurring transaction filter parameters
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RecurringTransactionFilter {
+    pub account_id: Option<i64>,
+    pub is_active: Option<bool>,
+    pub frequency: Option<String>,
+    #[serde(default = "default_page")]
+    pub page: i64,
+    #[serde(default = "default_page_size")]
+    pub page_size: i64,
+}
+
+/// Analytics filter parameters
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AnalyticsFilter {
+    pub user_id: Option<i64>,
+    pub start_date: Option<DateTime<Utc>>,
+    pub end_date: Option<DateTime<Utc>>,
+    pub limit: Option<i64>,
+}
+
+/// Spending comparison query parameters
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SpendingComparisonQuery {
+    pub user_id: Option<i64>,
+    pub current_start: DateTime<Utc>,
+    pub current_end: DateTime<Utc>,
+    pub previous_start: DateTime<Utc>,
+    pub previous_end: DateTime<Utc>,
+}
+
+/// Spending comparison result
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SpendingComparison {
+    pub current_period_total: f64,
+    pub previous_period_total: f64,
+    pub change_amount: f64,
+    pub change_percentage: f64,
+}
+
+/// Export filter parameters
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExportFilter {
+    pub user_id: Option<i64>,
+    pub start_date: Option<DateTime<Utc>>,
+    pub end_date: Option<DateTime<Utc>>,
+    pub account_id: Option<i64>,
+    pub category_id: Option<i64>,
+}
+
+/// Financial export summary
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FinancialExportSummary {
+    pub export_date: DateTime<Utc>,
+    pub accounts: Vec<Account>,
+    pub categories: Vec<Category>,
+    pub transactions: Vec<Transaction>,
+}
+
 // ============================================================================
 // Enums for Type Safety
 // ============================================================================
@@ -306,12 +368,14 @@ pub struct BulkDeleteParams {
 /// Account types
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[allow(dead_code)]
 pub enum AccountType {
     Checking,
     Savings,
     CreditCard,
 }
 
+#[allow(dead_code)]
 impl AccountType {
     pub fn as_str(&self) -> &'static str {
         match self {
@@ -334,12 +398,14 @@ impl AccountType {
 /// Transaction types
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[allow(dead_code)]
 pub enum TransactionType {
     Income,
     Expense,
     Transfer,
 }
 
+#[allow(dead_code)]
 impl TransactionType {
     pub fn as_str(&self) -> &'static str {
         match self {
@@ -362,6 +428,7 @@ impl TransactionType {
 /// Frequency types for recurring transactions
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[allow(dead_code)]
 pub enum Frequency {
     Daily,
     Weekly,
@@ -369,6 +436,7 @@ pub enum Frequency {
     Yearly,
 }
 
+#[allow(dead_code)]
 impl Frequency {
     pub fn as_str(&self) -> &'static str {
         match self {
@@ -393,6 +461,7 @@ impl Frequency {
 /// Exchange rate source types
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[allow(dead_code)]
 pub enum ExchangeRateSource {
     Api,
     Bank,
@@ -400,6 +469,7 @@ pub enum ExchangeRateSource {
     Scraper,
 }
 
+#[allow(dead_code)]
 impl ExchangeRateSource {
     pub fn as_str(&self) -> &'static str {
         match self {
@@ -513,6 +583,7 @@ pub struct TransactionFilter {
 
 /// Account balance summary
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(dead_code)]
 pub struct AccountBalanceSummary {
     pub account_id: i64,
     pub account_name: String,
@@ -522,7 +593,7 @@ pub struct AccountBalanceSummary {
 }
 
 /// Category spending summary
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
 pub struct CategorySpendingSummary {
     pub category_id: i64,
     pub category_name: String,
@@ -531,7 +602,7 @@ pub struct CategorySpendingSummary {
 }
 
 /// Monthly summary
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
 pub struct MonthlySummary {
     pub month: String, // Format: "YYYY-MM"
     pub total_income: f64,
@@ -542,6 +613,7 @@ pub struct MonthlySummary {
 
 /// Currency balance
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(dead_code)]
 pub struct CurrencyBalance {
     pub currency: String,
     pub total_balance: f64,
