@@ -299,6 +299,65 @@ pub struct BulkDeleteParams {
     pub source: Option<String>,
 }
 
+/// Recurring transaction filter parameters
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RecurringTransactionFilter {
+    pub account_id: Option<i64>,
+    pub is_active: Option<bool>,
+    pub frequency: Option<String>,
+    #[serde(default = "default_page")]
+    pub page: i64,
+    #[serde(default = "default_page_size")]
+    pub page_size: i64,
+}
+
+/// Analytics filter parameters
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AnalyticsFilter {
+    pub user_id: Option<i64>,
+    pub start_date: Option<DateTime<Utc>>,
+    pub end_date: Option<DateTime<Utc>>,
+    pub limit: Option<i64>,
+}
+
+/// Spending comparison query parameters
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SpendingComparisonQuery {
+    pub user_id: Option<i64>,
+    pub current_start: DateTime<Utc>,
+    pub current_end: DateTime<Utc>,
+    pub previous_start: DateTime<Utc>,
+    pub previous_end: DateTime<Utc>,
+}
+
+/// Spending comparison result
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SpendingComparison {
+    pub current_period_total: f64,
+    pub previous_period_total: f64,
+    pub change_amount: f64,
+    pub change_percentage: f64,
+}
+
+/// Export filter parameters
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExportFilter {
+    pub user_id: Option<i64>,
+    pub start_date: Option<DateTime<Utc>>,
+    pub end_date: Option<DateTime<Utc>>,
+    pub account_id: Option<i64>,
+    pub category_id: Option<i64>,
+}
+
+/// Financial export summary
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FinancialExportSummary {
+    pub export_date: DateTime<Utc>,
+    pub accounts: Vec<Account>,
+    pub categories: Vec<Category>,
+    pub transactions: Vec<Transaction>,
+}
+
 // ============================================================================
 // Enums for Type Safety
 // ============================================================================
@@ -522,7 +581,7 @@ pub struct AccountBalanceSummary {
 }
 
 /// Category spending summary
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
 pub struct CategorySpendingSummary {
     pub category_id: i64,
     pub category_name: String,
@@ -531,7 +590,7 @@ pub struct CategorySpendingSummary {
 }
 
 /// Monthly summary
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
 pub struct MonthlySummary {
     pub month: String, // Format: "YYYY-MM"
     pub total_income: f64,

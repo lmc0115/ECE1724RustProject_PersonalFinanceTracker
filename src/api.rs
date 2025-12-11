@@ -1,6 +1,6 @@
 ﻿use crate::models::*;
 use actix_web::{delete, get, post, put, web, HttpResponse, Responder};
-use chrono::{TimeZone, Utc};
+use chrono::{Datelike, Duration, TimeZone, Utc};
 use sqlx::SqlitePool;
 
 // ============================================================================
@@ -1083,6 +1083,848 @@ async fn delete_rates_bulk(
 }
 
 // ============================================================================
+// Recurring Transaction Endpoints
+// ============================================================================
+
+/// GET /recurring-transactions - List recurring transactions
+#[get("/recurring-transactions")]
+async fn get_recurring_transactions(
+    pool: web::Data<SqlitePool>,
+    query: web::Query<RecurringTransactionFilter>,
+) -> impl Responder {
+    let offset = (query.page - 1) * query.page_size;
+
+    let mut where_clauses = Vec::new();
+
+    if let Some(account_id) = query.account_id {
+        where_clauses.push(format!("account_id = {}", account_id));
+    }
+    if let Some(is_active) = query.is_active {
+        where_clauses.push(format!("is_active = {}", if is_active { 1 } else { 0 }));
+    }
+    if let Some(ref frequency) = query.frequency {
+        where_clauses.push(format!("frequency = '{}'", frequency));
+    }
+
+    let where_sql = if where_clauses.is_empty() {
+        String::new()
+    } else {
+        format!("WHERE {}", where_clauses.join(" AND "))
+    };
+
+    let query_sql = format!(
+        "SELECT * FROM recurring_transactions {} ORDER BY next_occurrence ASC LIMIT {} OFFSET {}",
+        where_sql, query.page_size, offset
+    );
+
+    let recurring = sqlx::query_as::<_, RecurringTransaction>(&query_sql)
+        .fetch_all(pool.get_ref())
+        .await;
+
+    let count_sql = format!("SELECT COUNT(*) FROM recurring_transactions {}", where_sql);
+    let total: i64 = sqlx::query_scalar(&count_sql)
+        .fetch_one(pool.get_ref())
+        .await
+        .unwrap_or(0);
+
+    match recurring {
+        Ok(recurring) => {
+            let response = PaginatedResponse {
+                items: recurring,
+                total,
+                page: query.page,
+                page_size: query.page_size,
+                total_pages: (total + query.page_size - 1) / query.page_size,
+            };
+            HttpResponse::Ok().json(ApiResponse::success(response))
+        }
+        Err(e) => HttpResponse::InternalServerError().json(ApiResponse::<()>::error(e.to_string())),
+    }
+}
+
+/// GET /recurring-transactions/{id} - Get recurring transaction by ID
+#[get("/recurring-transactions/{id}")]
+async fn get_recurring_transaction(
+    pool: web::Data<SqlitePool>,
+    id: web::Path<i64>,
+) -> impl Responder {
+    let id = id.into_inner();
+
+    let recurring =
+        sqlx::query_as::<_, RecurringTransaction>("SELECT * FROM recurring_transactions WHERE id = ?")
+            .bind(id)
+            .fetch_optional(pool.get_ref())
+            .await;
+
+    match recurring {
+        Ok(Some(recurring)) => HttpResponse::Ok().json(ApiResponse::success(recurring)),
+        Ok(None) => HttpResponse::NotFound()
+            .json(ApiResponse::<()>::error("Recurring transaction not found".into())),
+        Err(e) => HttpResponse::InternalServerError().json(ApiResponse::<()>::error(e.to_string())),
+    }
+}
+
+/// POST /recurring-transactions - Create new recurring transaction
+#[post("/recurring-transactions")]
+async fn create_recurring_transaction(
+    pool: web::Data<SqlitePool>,
+    data: web::Json<CreateRecurringTransaction>,
+) -> impl Responder {
+    let next_occurrence = data.start_date;
+
+    let result = sqlx::query(
+        "INSERT INTO recurring_transactions 
+         (account_id, category_id, amount, transaction_type, description, frequency, start_date, end_date, next_occurrence, is_active) 
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)",
+    )
+    .bind(data.account_id)
+    .bind(data.category_id)
+    .bind(data.amount)
+    .bind(&data.transaction_type)
+    .bind(&data.description)
+    .bind(&data.frequency)
+    .bind(data.start_date)
+    .bind(data.end_date)
+    .bind(next_occurrence)
+    .execute(pool.get_ref())
+    .await;
+
+    match result {
+        Ok(result) => {
+            let recurring = sqlx::query_as::<_, RecurringTransaction>(
+                "SELECT * FROM recurring_transactions WHERE id = ?",
+            )
+            .bind(result.last_insert_rowid())
+            .fetch_one(pool.get_ref())
+            .await
+            .unwrap();
+
+            HttpResponse::Created().json(ApiResponse::success(recurring))
+        }
+        Err(e) => HttpResponse::InternalServerError().json(ApiResponse::<()>::error(e.to_string())),
+    }
+}
+
+/// PUT /recurring-transactions/{id} - Update recurring transaction
+#[put("/recurring-transactions/{id}")]
+async fn update_recurring_transaction(
+    pool: web::Data<SqlitePool>,
+    id: web::Path<i64>,
+    update_data: web::Json<UpdateRecurringTransaction>,
+) -> impl Responder {
+    let id = id.into_inner();
+    let mut updates = Vec::new();
+
+    if let Some(category_id) = update_data.category_id {
+        updates.push(format!("category_id = {}", category_id));
+    }
+    if let Some(amount) = update_data.amount {
+        updates.push(format!("amount = {}", amount));
+    }
+    if let Some(ref txn_type) = update_data.transaction_type {
+        updates.push(format!("transaction_type = '{}'", txn_type));
+    }
+    if let Some(ref desc) = update_data.description {
+        updates.push(format!("description = '{}'", desc));
+    }
+    if let Some(ref frequency) = update_data.frequency {
+        updates.push(format!("frequency = '{}'", frequency));
+    }
+    if let Some(is_active) = update_data.is_active {
+        updates.push(format!("is_active = {}", if is_active { 1 } else { 0 }));
+    }
+
+    if updates.is_empty() {
+        return HttpResponse::BadRequest()
+            .json(ApiResponse::<()>::error("No fields to update".into()));
+    }
+
+    let query = format!(
+        "UPDATE recurring_transactions SET {}, updated_at = datetime('now') WHERE id = {}",
+        updates.join(", "),
+        id
+    );
+
+    let result = sqlx::query(&query).execute(pool.get_ref()).await;
+
+    match result {
+        Ok(_) => {
+            let recurring = sqlx::query_as::<_, RecurringTransaction>(
+                "SELECT * FROM recurring_transactions WHERE id = ?",
+            )
+            .bind(id)
+            .fetch_one(pool.get_ref())
+            .await
+            .unwrap();
+            HttpResponse::Ok().json(ApiResponse::success(recurring))
+        }
+        Err(e) => HttpResponse::InternalServerError().json(ApiResponse::<()>::error(e.to_string())),
+    }
+}
+
+/// DELETE /recurring-transactions/{id} - Delete recurring transaction
+#[delete("/recurring-transactions/{id}")]
+async fn delete_recurring_transaction(
+    pool: web::Data<SqlitePool>,
+    id: web::Path<i64>,
+) -> impl Responder {
+    let id = id.into_inner();
+
+    let result = sqlx::query("DELETE FROM recurring_transactions WHERE id = ?")
+        .bind(id)
+        .execute(pool.get_ref())
+        .await;
+
+    match result {
+        Ok(result) => {
+            if result.rows_affected() > 0 {
+                HttpResponse::Ok()
+                    .json(ApiResponse::success("Recurring transaction deleted successfully"))
+            } else {
+                HttpResponse::NotFound()
+                    .json(ApiResponse::<()>::error("Recurring transaction not found".into()))
+            }
+        }
+        Err(e) => HttpResponse::InternalServerError().json(ApiResponse::<()>::error(e.to_string())),
+    }
+}
+
+/// POST /recurring-transactions/process - Process due recurring transactions
+#[post("/recurring-transactions/process")]
+async fn process_recurring_transactions(pool: web::Data<SqlitePool>) -> impl Responder {
+    let now = Utc::now();
+
+    // Get all active recurring transactions that are due
+    let due_transactions = sqlx::query_as::<_, RecurringTransaction>(
+        "SELECT * FROM recurring_transactions 
+         WHERE is_active = 1 AND next_occurrence <= ? 
+         AND (end_date IS NULL OR end_date > ?)",
+    )
+    .bind(now)
+    .bind(now)
+    .fetch_all(pool.get_ref())
+    .await;
+
+    match due_transactions {
+        Ok(transactions) => {
+            let mut created_count = 0;
+
+            for recurring in &transactions {
+                // Create the transaction
+                let result = sqlx::query(
+                    "INSERT INTO transactions (account_id, amount, transaction_type, description, transaction_date) 
+                     VALUES (?, ?, ?, ?, ?)",
+                )
+                .bind(recurring.account_id)
+                .bind(recurring.amount)
+                .bind(&recurring.transaction_type)
+                .bind(&recurring.description)
+                .bind(recurring.next_occurrence)
+                .execute(pool.get_ref())
+                .await;
+
+                if let Ok(res) = result {
+                    let transaction_id = res.last_insert_rowid();
+
+                    // Link category if exists
+                    if let Some(category_id) = recurring.category_id {
+                        let _ = sqlx::query(
+                            "INSERT INTO transaction_categories (transaction_id, category_id, amount) 
+                             VALUES (?, ?, ?)",
+                        )
+                        .bind(transaction_id)
+                        .bind(category_id)
+                        .bind(recurring.amount.abs())
+                        .execute(pool.get_ref())
+                        .await;
+                    }
+
+                    // Update account balance
+                    let balance_change = if recurring.transaction_type == "income" {
+                        recurring.amount
+                    } else {
+                        -recurring.amount.abs()
+                    };
+
+                    let _ = sqlx::query(
+                        "UPDATE accounts SET current_balance = current_balance + ? WHERE id = ?",
+                    )
+                    .bind(balance_change)
+                    .bind(recurring.account_id)
+                    .execute(pool.get_ref())
+                    .await;
+
+                    // Calculate next occurrence
+                    let next = calculate_next_occurrence(
+                        recurring.next_occurrence,
+                        &recurring.frequency,
+                    );
+
+                    // Check if should deactivate (past end_date)
+                    let should_deactivate = recurring
+                        .end_date
+                        .map(|end| next > end)
+                        .unwrap_or(false);
+
+                    if should_deactivate {
+                        let _ = sqlx::query(
+                            "UPDATE recurring_transactions SET is_active = 0, next_occurrence = ? WHERE id = ?",
+                        )
+                        .bind(next)
+                        .bind(recurring.id)
+                        .execute(pool.get_ref())
+                        .await;
+                    } else {
+                        let _ = sqlx::query(
+                            "UPDATE recurring_transactions SET next_occurrence = ? WHERE id = ?",
+                        )
+                        .bind(next)
+                        .bind(recurring.id)
+                        .execute(pool.get_ref())
+                        .await;
+                    }
+
+                    created_count += 1;
+                }
+            }
+
+            HttpResponse::Ok().json(ApiResponse::success(format!(
+                "Processed {} recurring transactions, created {} new transactions",
+                transactions.len(),
+                created_count
+            )))
+        }
+        Err(e) => HttpResponse::InternalServerError().json(ApiResponse::<()>::error(e.to_string())),
+    }
+}
+
+fn calculate_next_occurrence(
+    current: chrono::DateTime<Utc>,
+    frequency: &str,
+) -> chrono::DateTime<Utc> {
+    match frequency {
+        "daily" => current + Duration::days(1),
+        "weekly" => current + Duration::weeks(1),
+        "monthly" => {
+            // Add one month
+            let year = current.year();
+            let month = current.month();
+            let day = current.day();
+
+            let (new_year, new_month) = if month == 12 {
+                (year + 1, 1)
+            } else {
+                (year, month + 1)
+            };
+
+            // Handle month-end edge cases
+            let days_in_new_month = days_in_month(new_year, new_month);
+            let new_day = day.min(days_in_new_month);
+
+            Utc.with_ymd_and_hms(new_year, new_month, new_day, 0, 0, 0)
+                .unwrap()
+        }
+        "yearly" => {
+            let year = current.year();
+            let month = current.month();
+            let day = current.day();
+
+            // Handle leap year edge case for Feb 29
+            let new_day = if month == 2 && day == 29 {
+                if is_leap_year(year + 1) { 29 } else { 28 }
+            } else {
+                day
+            };
+
+            Utc.with_ymd_and_hms(year + 1, month, new_day, 0, 0, 0)
+                .unwrap()
+        }
+        _ => current + Duration::days(30), // Default to monthly
+    }
+}
+
+fn days_in_month(year: i32, month: u32) -> u32 {
+    match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 => if is_leap_year(year) { 29 } else { 28 },
+        _ => 30,
+    }
+}
+
+fn is_leap_year(year: i32) -> bool {
+    (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0)
+}
+
+// ============================================================================
+// Analytics & Insights Endpoints
+// ============================================================================
+
+/// GET /analytics/spending-by-category - Get spending breakdown by category
+#[get("/analytics/spending-by-category")]
+async fn get_spending_by_category(
+    pool: web::Data<SqlitePool>,
+    query: web::Query<AnalyticsFilter>,
+) -> impl Responder {
+    let mut where_clauses = vec!["t.transaction_type = 'expense'".to_string()];
+
+    if let Some(user_id) = query.user_id {
+        where_clauses.push(format!(
+            "t.account_id IN (SELECT id FROM accounts WHERE user_id = {})",
+            user_id
+        ));
+    }
+    if let Some(ref start_date) = query.start_date {
+        where_clauses.push(format!("t.transaction_date >= '{}'", start_date));
+    }
+    if let Some(ref end_date) = query.end_date {
+        where_clauses.push(format!("t.transaction_date <= '{}'", end_date));
+    }
+
+    let where_sql = format!("WHERE {}", where_clauses.join(" AND "));
+
+    let query_sql = format!(
+        "SELECT c.id as category_id, c.name as category_name, 
+                SUM(ABS(tc.amount)) as total_amount, COUNT(DISTINCT t.id) as transaction_count
+         FROM transactions t
+         JOIN transaction_categories tc ON t.id = tc.transaction_id
+         JOIN categories c ON tc.category_id = c.id
+         {}
+         GROUP BY c.id, c.name
+         ORDER BY total_amount DESC",
+        where_sql
+    );
+
+    let results = sqlx::query_as::<_, CategorySpendingSummary>(&query_sql)
+        .fetch_all(pool.get_ref())
+        .await;
+
+    match results {
+        Ok(data) => HttpResponse::Ok().json(ApiResponse::success(data)),
+        Err(e) => HttpResponse::InternalServerError().json(ApiResponse::<()>::error(e.to_string())),
+    }
+}
+
+/// GET /analytics/monthly-summary - Get monthly income/expense summary
+#[get("/analytics/monthly-summary")]
+async fn get_monthly_summary(
+    pool: web::Data<SqlitePool>,
+    query: web::Query<AnalyticsFilter>,
+) -> impl Responder {
+    let mut where_clauses = Vec::new();
+
+    if let Some(user_id) = query.user_id {
+        where_clauses.push(format!(
+            "account_id IN (SELECT id FROM accounts WHERE user_id = {})",
+            user_id
+        ));
+    }
+    if let Some(ref start_date) = query.start_date {
+        where_clauses.push(format!("transaction_date >= '{}'", start_date));
+    }
+    if let Some(ref end_date) = query.end_date {
+        where_clauses.push(format!("transaction_date <= '{}'", end_date));
+    }
+
+    let where_sql = if where_clauses.is_empty() {
+        String::new()
+    } else {
+        format!("WHERE {}", where_clauses.join(" AND "))
+    };
+
+    let query_sql = format!(
+        "SELECT strftime('%Y-%m', transaction_date) as month,
+                SUM(CASE WHEN transaction_type = 'income' THEN amount ELSE 0 END) as total_income,
+                SUM(CASE WHEN transaction_type = 'expense' THEN ABS(amount) ELSE 0 END) as total_expense,
+                SUM(CASE WHEN transaction_type = 'income' THEN amount ELSE -ABS(amount) END) as net_change,
+                COUNT(*) as transaction_count
+         FROM transactions
+         {}
+         GROUP BY strftime('%Y-%m', transaction_date)
+         ORDER BY month DESC
+         LIMIT 12",
+        where_sql
+    );
+
+    let results = sqlx::query_as::<_, MonthlySummary>(&query_sql)
+        .fetch_all(pool.get_ref())
+        .await;
+
+    match results {
+        Ok(data) => HttpResponse::Ok().json(ApiResponse::success(data)),
+        Err(e) => HttpResponse::InternalServerError().json(ApiResponse::<()>::error(e.to_string())),
+    }
+}
+
+/// GET /analytics/spending-comparison - Compare spending between periods
+#[get("/analytics/spending-comparison")]
+async fn get_spending_comparison(
+    pool: web::Data<SqlitePool>,
+    query: web::Query<SpendingComparisonQuery>,
+) -> impl Responder {
+    let mut user_filter = String::new();
+    if let Some(user_id) = query.user_id {
+        user_filter = format!(
+            "AND account_id IN (SELECT id FROM accounts WHERE user_id = {})",
+            user_id
+        );
+    }
+
+    // Get current period spending
+    let current_sql = format!(
+        "SELECT SUM(ABS(amount)) as total
+         FROM transactions
+         WHERE transaction_type = 'expense'
+         AND transaction_date >= ? AND transaction_date <= ?
+         {}",
+        user_filter
+    );
+
+    let current_total: Option<f64> = sqlx::query_scalar(&current_sql)
+        .bind(&query.current_start)
+        .bind(&query.current_end)
+        .fetch_optional(pool.get_ref())
+        .await
+        .unwrap_or(None);
+
+    // Get previous period spending
+    let previous_sql = format!(
+        "SELECT SUM(ABS(amount)) as total
+         FROM transactions
+         WHERE transaction_type = 'expense'
+         AND transaction_date >= ? AND transaction_date <= ?
+         {}",
+        user_filter
+    );
+
+    let previous_total: Option<f64> = sqlx::query_scalar(&previous_sql)
+        .bind(&query.previous_start)
+        .bind(&query.previous_end)
+        .fetch_optional(pool.get_ref())
+        .await
+        .unwrap_or(None);
+
+    let current = current_total.unwrap_or(0.0);
+    let previous = previous_total.unwrap_or(0.0);
+    let change_amount = current - previous;
+    let change_percentage = if previous > 0.0 {
+        (change_amount / previous) * 100.0
+    } else {
+        0.0
+    };
+
+    let comparison = SpendingComparison {
+        current_period_total: current,
+        previous_period_total: previous,
+        change_amount,
+        change_percentage,
+    };
+
+    HttpResponse::Ok().json(ApiResponse::success(comparison))
+}
+
+/// GET /analytics/top-categories - Get top spending categories
+#[get("/analytics/top-categories")]
+async fn get_top_categories(
+    pool: web::Data<SqlitePool>,
+    query: web::Query<AnalyticsFilter>,
+) -> impl Responder {
+    let limit = query.limit.unwrap_or(5);
+    let mut where_clauses = vec!["t.transaction_type = 'expense'".to_string()];
+
+    if let Some(user_id) = query.user_id {
+        where_clauses.push(format!(
+            "t.account_id IN (SELECT id FROM accounts WHERE user_id = {})",
+            user_id
+        ));
+    }
+    if let Some(ref start_date) = query.start_date {
+        where_clauses.push(format!("t.transaction_date >= '{}'", start_date));
+    }
+    if let Some(ref end_date) = query.end_date {
+        where_clauses.push(format!("t.transaction_date <= '{}'", end_date));
+    }
+
+    let where_sql = format!("WHERE {}", where_clauses.join(" AND "));
+
+    let query_sql = format!(
+        "SELECT c.id as category_id, c.name as category_name,
+                SUM(ABS(tc.amount)) as total_amount, COUNT(DISTINCT t.id) as transaction_count
+         FROM transactions t
+         JOIN transaction_categories tc ON t.id = tc.transaction_id
+         JOIN categories c ON tc.category_id = c.id
+         {}
+         GROUP BY c.id, c.name
+         ORDER BY total_amount DESC
+         LIMIT {}",
+        where_sql, limit
+    );
+
+    let results = sqlx::query_as::<_, CategorySpendingSummary>(&query_sql)
+        .fetch_all(pool.get_ref())
+        .await;
+
+    match results {
+        Ok(data) => HttpResponse::Ok().json(ApiResponse::success(data)),
+        Err(e) => HttpResponse::InternalServerError().json(ApiResponse::<()>::error(e.to_string())),
+    }
+}
+
+// ============================================================================
+// Data Export Endpoints
+// ============================================================================
+
+/// GET /export/transactions/csv - Export transactions as CSV
+#[get("/export/transactions/csv")]
+async fn export_transactions_csv(
+    pool: web::Data<SqlitePool>,
+    query: web::Query<ExportFilter>,
+) -> impl Responder {
+    let mut where_clauses = Vec::new();
+
+    if let Some(user_id) = query.user_id {
+        where_clauses.push(format!(
+            "t.account_id IN (SELECT id FROM accounts WHERE user_id = {})",
+            user_id
+        ));
+    }
+    if let Some(ref start_date) = query.start_date {
+        where_clauses.push(format!("t.transaction_date >= '{}'", start_date));
+    }
+    if let Some(ref end_date) = query.end_date {
+        where_clauses.push(format!("t.transaction_date <= '{}'", end_date));
+    }
+    if let Some(account_id) = query.account_id {
+        where_clauses.push(format!("t.account_id = {}", account_id));
+    }
+    if let Some(category_id) = query.category_id {
+        where_clauses.push(format!(
+            "t.id IN (SELECT transaction_id FROM transaction_categories WHERE category_id = {})",
+            category_id
+        ));
+    }
+
+    let where_sql = if where_clauses.is_empty() {
+        String::new()
+    } else {
+        format!("WHERE {}", where_clauses.join(" AND "))
+    };
+
+    let query_sql = format!(
+        "SELECT t.id, t.account_id, a.name as account_name, t.amount, t.transaction_type,
+                t.description, t.transaction_date, a.currency
+         FROM transactions t
+         JOIN accounts a ON t.account_id = a.id
+         {}
+         ORDER BY t.transaction_date DESC",
+        where_sql
+    );
+
+    let rows = sqlx::query(&query_sql)
+        .fetch_all(pool.get_ref())
+        .await;
+
+    match rows {
+        Ok(rows) => {
+            use sqlx::Row;
+            let mut csv = String::from("id,account_id,account_name,amount,type,description,date,currency\n");
+
+            for row in rows {
+                let id: i64 = row.get("id");
+                let account_id: i64 = row.get("account_id");
+                let account_name: String = row.get("account_name");
+                let amount: f64 = row.get("amount");
+                let txn_type: String = row.get("transaction_type");
+                let description: Option<String> = row.get("description");
+                let date: chrono::DateTime<Utc> = row.get("transaction_date");
+                let currency: String = row.get("currency");
+
+                csv.push_str(&format!(
+                    "{},{},\"{}\",{:.2},{},\"{}\",{},{}\n",
+                    id,
+                    account_id,
+                    account_name.replace("\"", "\"\""),
+                    amount,
+                    txn_type,
+                    description.unwrap_or_default().replace("\"", "\"\""),
+                    date.format("%Y-%m-%d %H:%M:%S"),
+                    currency
+                ));
+            }
+
+            HttpResponse::Ok()
+                .content_type("text/csv")
+                .insert_header(("Content-Disposition", "attachment; filename=\"transactions.csv\""))
+                .body(csv)
+        }
+        Err(e) => HttpResponse::InternalServerError().json(ApiResponse::<()>::error(e.to_string())),
+    }
+}
+
+/// GET /export/transactions/json - Export transactions as JSON
+#[get("/export/transactions/json")]
+async fn export_transactions_json(
+    pool: web::Data<SqlitePool>,
+    query: web::Query<ExportFilter>,
+) -> impl Responder {
+    let mut where_clauses = Vec::new();
+
+    if let Some(user_id) = query.user_id {
+        where_clauses.push(format!(
+            "account_id IN (SELECT id FROM accounts WHERE user_id = {})",
+            user_id
+        ));
+    }
+    if let Some(ref start_date) = query.start_date {
+        where_clauses.push(format!("transaction_date >= '{}'", start_date));
+    }
+    if let Some(ref end_date) = query.end_date {
+        where_clauses.push(format!("transaction_date <= '{}'", end_date));
+    }
+    if let Some(account_id) = query.account_id {
+        where_clauses.push(format!("account_id = {}", account_id));
+    }
+
+    let where_sql = if where_clauses.is_empty() {
+        String::new()
+    } else {
+        format!("WHERE {}", where_clauses.join(" AND "))
+    };
+
+    let query_sql = format!(
+        "SELECT * FROM transactions {} ORDER BY transaction_date DESC",
+        where_sql
+    );
+
+    let transactions = sqlx::query_as::<_, Transaction>(&query_sql)
+        .fetch_all(pool.get_ref())
+        .await;
+
+    match transactions {
+        Ok(data) => {
+            let json = serde_json::to_string_pretty(&data).unwrap_or_default();
+            HttpResponse::Ok()
+                .content_type("application/json")
+                .insert_header(("Content-Disposition", "attachment; filename=\"transactions.json\""))
+                .body(json)
+        }
+        Err(e) => HttpResponse::InternalServerError().json(ApiResponse::<()>::error(e.to_string())),
+    }
+}
+
+/// GET /export/accounts/csv - Export accounts as CSV
+#[get("/export/accounts/csv")]
+async fn export_accounts_csv(
+    pool: web::Data<SqlitePool>,
+    query: web::Query<ExportFilter>,
+) -> impl Responder {
+    let mut where_clauses = Vec::new();
+
+    if let Some(user_id) = query.user_id {
+        where_clauses.push(format!("user_id = {}", user_id));
+    }
+
+    let where_sql = if where_clauses.is_empty() {
+        String::new()
+    } else {
+        format!("WHERE {}", where_clauses.join(" AND "))
+    };
+
+    let query_sql = format!(
+        "SELECT * FROM accounts {} ORDER BY name",
+        where_sql
+    );
+
+    let accounts = sqlx::query_as::<_, Account>(&query_sql)
+        .fetch_all(pool.get_ref())
+        .await;
+
+    match accounts {
+        Ok(accounts) => {
+            let mut csv = String::from("id,user_id,name,type,bank_name,currency,initial_balance,current_balance,created_at\n");
+
+            for a in accounts {
+                csv.push_str(&format!(
+                    "{},{},\"{}\",{},\"{}\",{},{:.2},{:.2},{}\n",
+                    a.id,
+                    a.user_id,
+                    a.name.replace("\"", "\"\""),
+                    a.account_type,
+                    a.bank_name.unwrap_or_default().replace("\"", "\"\""),
+                    a.currency,
+                    a.initial_balance,
+                    a.current_balance,
+                    a.created_at.format("%Y-%m-%d %H:%M:%S")
+                ));
+            }
+
+            HttpResponse::Ok()
+                .content_type("text/csv")
+                .insert_header(("Content-Disposition", "attachment; filename=\"accounts.csv\""))
+                .body(csv)
+        }
+        Err(e) => HttpResponse::InternalServerError().json(ApiResponse::<()>::error(e.to_string())),
+    }
+}
+
+/// GET /export/summary/json - Export complete financial summary as JSON
+#[get("/export/summary/json")]
+async fn export_summary_json(
+    pool: web::Data<SqlitePool>,
+    query: web::Query<ExportFilter>,
+) -> impl Responder {
+    let user_filter = if let Some(user_id) = query.user_id {
+        format!("WHERE user_id = {}", user_id)
+    } else {
+        String::new()
+    };
+
+    // Get accounts
+    let accounts_sql = format!("SELECT * FROM accounts {}", user_filter);
+    let accounts = sqlx::query_as::<_, Account>(&accounts_sql)
+        .fetch_all(pool.get_ref())
+        .await
+        .unwrap_or_default();
+
+    // Get categories
+    let categories_sql = format!("SELECT * FROM categories {}", user_filter);
+    let categories = sqlx::query_as::<_, Category>(&categories_sql)
+        .fetch_all(pool.get_ref())
+        .await
+        .unwrap_or_default();
+
+    // Get transactions for user's accounts
+    let account_ids: Vec<i64> = accounts.iter().map(|a| a.id).collect();
+    let transactions = if !account_ids.is_empty() {
+        let placeholders = account_ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+        let txn_sql = format!(
+            "SELECT * FROM transactions WHERE account_id IN ({}) ORDER BY transaction_date DESC",
+            placeholders
+        );
+        let mut q = sqlx::query_as::<_, Transaction>(&txn_sql);
+        for id in &account_ids {
+            q = q.bind(id);
+        }
+        q.fetch_all(pool.get_ref()).await.unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+
+    let summary = FinancialExportSummary {
+        export_date: Utc::now(),
+        accounts,
+        categories,
+        transactions,
+    };
+
+    let json = serde_json::to_string_pretty(&summary).unwrap_or_default();
+    HttpResponse::Ok()
+        .content_type("application/json")
+        .insert_header(("Content-Disposition", "attachment; filename=\"financial_summary.json\""))
+        .body(json)
+}
+
+// ============================================================================
 // Configuration
 // ============================================================================
 
@@ -1114,5 +1956,22 @@ pub fn configure_routes(cfg: &mut web::ServiceConfig) {
         .service(update_exchange_rate)
         .service(delete_rates_bulk)
         .service(delete_exchange_rate)
-        .service(get_exchange_rate);
+        .service(get_exchange_rate)
+        // Recurring transactions
+        .service(get_recurring_transactions)
+        .service(get_recurring_transaction)
+        .service(create_recurring_transaction)
+        .service(update_recurring_transaction)
+        .service(delete_recurring_transaction)
+        .service(process_recurring_transactions)
+        // Analytics
+        .service(get_spending_by_category)
+        .service(get_monthly_summary)
+        .service(get_spending_comparison)
+        .service(get_top_categories)
+        // Export
+        .service(export_transactions_csv)
+        .service(export_transactions_json)
+        .service(export_accounts_csv)
+        .service(export_summary_json);
 }
