@@ -344,20 +344,39 @@ impl App {
         }
 
         // Collect all available currencies from accounts AND exchange rates
-        let mut all_currencies: std::collections::HashSet<String> = std::collections::HashSet::new();
+        // Use HashSet to deduplicate, but store as (code, display_name) pairs
+        let mut currency_codes: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let mut code_to_display: std::collections::HashMap<String, String> = std::collections::HashMap::new();
         
         // Add currencies from user's accounts
         for a in &self.accounts {
-            all_currencies.insert(a.currency.clone());
+            let code = Self::extract_currency_code(&a.currency);
+            currency_codes.insert(code.clone());
+            // Account currencies are usually just codes, so display as-is
+            code_to_display.entry(code).or_insert(a.currency.clone());
         }
         
         // Add currencies from exchange rates (both from and to)
         for r in &self.exchange_rates {
-            all_currencies.insert(r.from_currency.clone());
-            all_currencies.insert(r.to_currency.clone());
+            let from_code = Self::extract_currency_code(&r.from_currency);
+            let to_code = Self::extract_currency_code(&r.to_currency);
+            
+            currency_codes.insert(from_code.clone());
+            currency_codes.insert(to_code.clone());
+            
+            // Prefer full names with codes like "Argentine Peso (ARS)" over just "ARS"
+            if r.from_currency.contains('(') {
+                code_to_display.insert(from_code, r.from_currency.clone());
+            }
+            if r.to_currency.contains('(') {
+                code_to_display.insert(to_code, r.to_currency.clone());
+            }
         }
         
-        self.available_currencies = all_currencies.into_iter().collect();
+        // Build available currencies list with nice display names
+        self.available_currencies = currency_codes.into_iter()
+            .map(|code| code_to_display.get(&code).cloned().unwrap_or(code))
+            .collect();
         self.available_currencies.sort();
     }
 
@@ -3510,35 +3529,72 @@ impl App {
         }
     }
 
+    /// Extract 3-letter currency code from strings like "Argentine Peso (ARS)" or "USD"
+    fn extract_currency_code(currency: &str) -> String {
+        // Check if it contains parentheses with a code like "(ARS)"
+        if let Some(start) = currency.rfind('(') {
+            if let Some(end) = currency.rfind(')') {
+                if end > start {
+                    let code = &currency[start + 1..end];
+                    // Verify it looks like a currency code (2-4 uppercase letters)
+                    if code.len() >= 2 && code.len() <= 4 && code.chars().all(|c| c.is_ascii_uppercase()) {
+                        return code.to_string();
+                    }
+                }
+            }
+        }
+        // Otherwise return the original string (it's probably already a code)
+        currency.to_string()
+    }
+
+    /// Check if two currency strings match (handles both codes and full names)
+    fn currencies_match(a: &str, b: &str) -> bool {
+        let code_a = Self::extract_currency_code(a);
+        let code_b = Self::extract_currency_code(b);
+        code_a == code_b
+    }
+
     fn get_exchange_rate(&self, from: &str, to: &str) -> f64 {
-        if from == to {
+        let from_code = Self::extract_currency_code(from);
+        let to_code = Self::extract_currency_code(to);
+        
+        if from_code == to_code {
             return 1.0;
         }
-        // Try to find direct rate
+        
+        // Try to find direct rate (with flexible matching)
         if let Some(rate) = self.exchange_rates.iter().find(|r| 
-            r.from_currency == from && r.to_currency == to
+            Self::currencies_match(&r.from_currency, &from_code) && 
+            Self::currencies_match(&r.to_currency, &to_code)
         ) {
             return rate.rate;
         }
+        
         // Try reverse rate
         if let Some(rate) = self.exchange_rates.iter().find(|r| 
-            r.from_currency == to && r.to_currency == from
+            Self::currencies_match(&r.from_currency, &to_code) && 
+            Self::currencies_match(&r.to_currency, &from_code)
         ) {
             return 1.0 / rate.rate;
         }
+        
         // Try via USD as intermediate
         let from_to_usd = self.exchange_rates.iter()
-            .find(|r| r.from_currency == from && r.to_currency == "USD")
+            .find(|r| Self::currencies_match(&r.from_currency, &from_code) && 
+                      Self::currencies_match(&r.to_currency, "USD"))
             .map(|r| r.rate)
             .or_else(|| self.exchange_rates.iter()
-                .find(|r| r.from_currency == "USD" && r.to_currency == from)
+                .find(|r| Self::currencies_match(&r.from_currency, "USD") && 
+                          Self::currencies_match(&r.to_currency, &from_code))
                 .map(|r| 1.0 / r.rate));
         
         let usd_to_target = self.exchange_rates.iter()
-            .find(|r| r.from_currency == "USD" && r.to_currency == to)
+            .find(|r| Self::currencies_match(&r.from_currency, "USD") && 
+                      Self::currencies_match(&r.to_currency, &to_code))
             .map(|r| r.rate)
             .or_else(|| self.exchange_rates.iter()
-                .find(|r| r.from_currency == to && r.to_currency == "USD")
+                .find(|r| Self::currencies_match(&r.from_currency, &to_code) && 
+                          Self::currencies_match(&r.to_currency, "USD"))
                 .map(|r| 1.0 / r.rate));
         
         if let (Some(f), Some(t)) = (from_to_usd, usd_to_target) {
