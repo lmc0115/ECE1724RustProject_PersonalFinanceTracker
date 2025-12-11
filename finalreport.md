@@ -78,22 +78,30 @@ The primary objective of this project was to develop a **complete, user-friendly
 | Feature | Description |
 |---------|-------------|
 | **Recurring Transactions** | Set up automatic monthly/weekly/daily/yearly transactions |
-| **Multi-Currency** | Support for 100+ currencies with real-time exchange rates |
-| **Currency Conversion** | Convert amounts between currencies using live rates |
+| **Multi-Currency** | Support for 50+ currencies with real-time exchange rates |
+| **Currency Conversion Calculator** | Convert amounts between currencies using live rates |
+| **View in Currency (Transactions)** | View all transactions converted to any target currency |
+| **View in Currency (Account)** | View account details with all amounts in chosen currency |
+| **Intelligent Rate Fallback** | Direct rate → Inverse rate → USD triangulation |
 | **Exchange Rate Scraping** | Fetch latest rates from X-Rates website |
 | **Spending Analytics** | Top spending categories with visual bar charts |
 | **Data Export** | Export to CSV and JSON formats |
+| **Account Transaction View** | View all transactions under each account with full details |
 
 ### 3.3 User Interface Features
 
 | Feature | Description |
 |---------|-------------|
 | **8-Tab Navigation** | Dashboard, Accounts, Transactions, Categories, Recurring, FX Rates, Reports, Export |
-| **Keyboard Shortcuts** | Efficient navigation with single-key commands |
-| **Scrollable Lists** | Full scrolling with Page Up/Down, Home/End support |
+| **Cross-Platform Shortcuts** | Works on Windows, Mac, and Linux with alternative key bindings |
+| **Scrollable Lists** | Full scrolling with `↑`/`↓`, `[`/`]` (jump 10) |
+| **Scrollable Dialogs** | Currency selection shows all 50+ currencies with scroll support |
 | **Interactive Forms** | Tab-based field navigation for data entry |
-| **Real-time Filtering** | Filter transactions by currency |
-| **Position Indicators** | Always know your position in lists (e.g., [5/100]) |
+| **Currency Filtering** | Filter transactions by specific currency |
+| **View in Currency** | Convert and view all amounts in any target currency (Enter to select) |
+| **Position Indicators** | Always know your position in lists (e.g., [22-32/56]) |
+| **Account Details** | View all transactions under an account with independent currency conversion |
+| **Visual Highlights** | `►` marker and `✓ ACTIVE` indicators in selection dialogs |
 
 ---
 
@@ -145,24 +153,37 @@ Use number keys or arrow keys to switch between tabs:
 | Add item | `a` | Accounts, Transactions, Categories, Recurring, FX Rates |
 | Delete item | `d` | Accounts, Transactions, Categories, Recurring, FX Rates |
 | View details | `Enter` | Accounts, Transactions, Recurring, FX Rates |
+| Filter by currency | `f` | Transactions |
+| View in currency | `v` | Transactions, Account Details |
 | Refresh data | `r` | All screens |
 | Switch user | `u` | All screens |
 | Quit | `q` | All screens |
 | Cancel/Back | `Esc` | All forms and dialogs |
 
-### 4.5 Adding a Transaction
+### 4.5 List Navigation (Cross-Platform)
+
+| Action | Windows/Linux | Mac Alternative |
+|--------|--------------|-----------------|
+| Move up | `↑` | `↑` |
+| Move down | `↓` | `↓` |
+| Jump up 10 items | `Page Up` | `[` |
+| Jump down 10 items | `Page Down` | `]` |
+| Jump to first item | `Home` | `g` |
+| Jump to last item | `End` | `G` (Shift+g) |
+
+### 4.6 Adding a Transaction
 
 1. Navigate to **Transactions** (Tab 3)
 2. Press `a` to open the add form
 3. Fill in fields using `Tab` to move between them:
-   - **Account ID**: Select from the list on the right (grouped by currency)
+   - **Account ID**: Select from the list on the right (shows account name and currency)
    - **Amount**: Enter the transaction amount
    - **Type**: Enter `i` for income or `e` for expense
    - **Description**: Brief description of the transaction
    - **Category ID**: Select a category
 4. Press `Enter` to submit
 
-### 4.6 Managing Recurring Transactions
+### 4.7 Managing Recurring Transactions
 
 1. Navigate to **Recurring** (Tab 5)
 2. Available actions:
@@ -171,7 +192,45 @@ Use number keys or arrow keys to switch between tabs:
    - `t` - Toggle active/paused status
    - `d` - Delete recurring transaction
 
-### 4.7 Currency Conversion
+### 4.8 View in Currency (Currency Conversion for Display)
+
+This feature allows you to view all transaction amounts converted to a single currency. The currency selection dialog is **fully scrollable** and shows all 50+ currencies from the exchange rates database.
+
+**On Transactions Screen:**
+1. Navigate to **Transactions** (Tab 3)
+2. Press `v` to open the View in Currency dialog
+3. Use `↑`/`↓` to scroll through currencies, `[`/`]` to jump 10
+4. Press `Enter` to select the highlighted currency
+5. All transactions will display amounts in the selected currency
+6. Original amounts are shown in parentheses
+
+**On Account Details:**
+1. Navigate to **Accounts** (Tab 2)
+2. Press `Enter` on an account to view details
+3. You'll see all transactions for that account listed
+4. Press `v` to open the currency selection dialog
+5. Scroll with `↑`/`↓` and press `Enter` to select
+6. Both balance and transaction amounts will be converted
+7. Press `Esc` to exit details (currency resets automatically)
+
+**Note:** Transactions screen and Account Details have **separate currency states** - changing one does not affect the other.
+
+**Currency Selection Dialog Controls:**
+| Action | Key |
+|--------|-----|
+| Scroll up | `↑` |
+| Scroll down | `↓` |
+| Jump up 10 | `[` |
+| Jump down 10 | `]` |
+| Select currency | `Enter` |
+| Cancel | `Esc` |
+
+The system uses exchange rates from the database, with intelligent fallback:
+- Direct rate if available
+- Inverse rate (1/rate) if reverse exists
+- Triangulation via USD if needed
+
+### 4.9 Currency Conversion Calculator
 
 1. Navigate to **FX Rates** (Tab 6)
 2. Press `c` to open conversion dialog
@@ -181,7 +240,7 @@ Use number keys or arrow keys to switch between tabs:
    - Amount to convert
 4. Press `Enter` to see the converted amount
 
-### 4.8 Exporting Data
+### 4.10 Exporting Data
 
 1. Navigate to **Export** (Tab 8)
 2. Press `e` to open export dialog
@@ -367,10 +426,12 @@ Rust's Result type forced us to handle errors explicitly. This led to more robus
 
 **TUI Development:**
 Building with ratatui taught us about:
-- Stateful vs stateless widget rendering
-- Efficient terminal redrawing
-- Keyboard event handling
-- Layout systems and responsive design in terminals
+- Stateful vs stateless widget rendering (ListState for scrollable lists)
+- Efficient terminal redrawing and layout management
+- Keyboard event handling across different platforms (Mac lacks Home/End/PageUp/PageDown keys)
+- Providing alternative keybindings (e.g., `[`/`]` for PageUp/PageDown)
+- Building scrollable dialogs with Enter-to-select pattern for better UX
+- Managing separate state for different contexts (e.g., account view currency vs transaction view currency)
 
 ### 7.2 Project Management Lessons
 
@@ -402,14 +463,17 @@ This project successfully demonstrates that Rust is a viable choice for building
 
 - **Complete functionality** for personal finance management
 - **Multiple interfaces** (TUI and REST API) for different use cases
-- **Multi-currency support** for global users
+- **Multi-currency support** for global users with real-time conversion
+- **View in Currency** feature for unified financial overview across currencies
+- **Cross-platform compatibility** with Mac, Linux, and Windows support
 - **Data portability** through CSV/JSON exports
 
 The project fills a gap in the Rust ecosystem by providing a comprehensive, terminal-based finance tracker that prioritizes:
 - Privacy (local SQLite database)
 - Speed (Rust's performance)
 - Reliability (type safety and error handling)
-- Usability (intuitive TUI with keyboard shortcuts)
+- Usability (intuitive TUI with scrollable dialogs and Enter-to-select pattern)
+- Accessibility (cross-platform keyboard shortcuts for Mac/Linux/Windows)
 
 We hope this project inspires other Rust developers to build practical applications in domains traditionally dominated by Python and JavaScript.
 
@@ -419,12 +483,15 @@ We hope this project inspires other Rust developers to build practical applicati
 
 | Metric | Value |
 |--------|-------|
-| Lines of Rust Code | ~4,500 |
+| Lines of Rust Code | ~5,500+ |
 | Number of Source Files | 6 |
 | Database Tables | 7 |
 | API Endpoints | 25+ |
 | TUI Screens | 8 |
-| Supported Currencies | 100+ |
+| TUI Modes | 14 (Normal, AddTransaction, ViewDetails, SelectViewCurrency, etc.) |
+| Supported Currencies | 50+ (from FX rates database) |
+| Keyboard Shortcuts | 35+ (cross-platform compatible) |
+| Scrollable Dialogs | 2 (Currency Filter, View in Currency) |
 
 ---
 

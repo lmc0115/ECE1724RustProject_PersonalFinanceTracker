@@ -46,6 +46,7 @@ enum Mode {
     ConvertCurrency,
     ExportData,
     SelectCurrencyFilter,
+    SelectViewCurrency,
 }
 
 pub struct App {
@@ -118,6 +119,11 @@ pub struct App {
     // Currency filter for transactions view
     currency_filter: Option<String>,
     available_currencies: Vec<String>,
+    
+    // View in currency conversion
+    view_in_currency: Option<String>,  // For Transactions screen - convert all amounts
+    account_view_currency: Option<String>,  // For Account Details only - separate from transactions
+    currency_scroll_offset: usize,  // Scroll offset for currency selection dialogs
 
     // Status message
     status_message: String,
@@ -169,6 +175,9 @@ impl App {
             export_message: String::new(),
             currency_filter: None,
             available_currencies: Vec::new(),
+            view_in_currency: None,
+            account_view_currency: None,
+            currency_scroll_offset: 0,
             status_message: String::new(),
         }
     }
@@ -334,13 +343,21 @@ impl App {
             self.category_spending = spending;
         }
 
-        // Also collect available currencies from user's accounts
-        self.available_currencies = self.accounts
-            .iter()
-            .map(|a| a.currency.clone())
-            .collect::<std::collections::HashSet<_>>()
-            .into_iter()
-            .collect();
+        // Collect all available currencies from accounts AND exchange rates
+        let mut all_currencies: std::collections::HashSet<String> = std::collections::HashSet::new();
+        
+        // Add currencies from user's accounts
+        for a in &self.accounts {
+            all_currencies.insert(a.currency.clone());
+        }
+        
+        // Add currencies from exchange rates (both from and to)
+        for r in &self.exchange_rates {
+            all_currencies.insert(r.from_currency.clone());
+            all_currencies.insert(r.to_currency.clone());
+        }
+        
+        self.available_currencies = all_currencies.into_iter().collect();
         self.available_currencies.sort();
     }
 
@@ -396,6 +413,7 @@ impl App {
             Mode::ViewDetails => self.render_details(frame, chunks[2]),
             Mode::ExportData => self.render_export_dialog(frame, chunks[2]),
             Mode::SelectCurrencyFilter => self.render_currency_filter_dialog(frame, chunks[2]),
+            Mode::SelectViewCurrency => self.render_view_currency_dialog(frame, chunks[2]),
         }
 
         // Footer
@@ -487,7 +505,8 @@ impl App {
             Mode::DeleteConfirm => " [DELETE CONFIRM]",
             Mode::ViewDetails => " [DETAILS]",
             Mode::ExportData => " [EXPORT DATA]",
-            Mode::SelectCurrencyFilter => " [SELECT CURRENCY]",
+            Mode::SelectCurrencyFilter => " [FILTER CURRENCY]",
+            Mode::SelectViewCurrency => " [VIEW IN CURRENCY]",
         };
 
         let current_user = if let Some(user_id) = self.current_user_id {
@@ -749,11 +768,19 @@ impl App {
                 let desc = t.description.as_deref().unwrap_or("No description");
 
                 // Get currency from account
-                let currency = self.accounts
+                let original_currency = self.accounts
                     .iter()
                     .find(|a| a.id == t.account_id)
                     .map(|a| a.currency.as_str())
                     .unwrap_or("???");
+
+                // Determine display amount and currency
+                let (display_amount, display_currency) = if let Some(ref target_currency) = self.view_in_currency {
+                    let rate = self.get_exchange_rate(original_currency, target_currency);
+                    (t.amount.abs() * rate, target_currency.as_str())
+                } else {
+                    (t.amount.abs(), original_currency)
+                };
 
                 ListItem::new(Line::from(vec![
                     Span::styled(format!("{} ", date_str), Style::default().fg(Color::Gray)),
@@ -764,17 +791,27 @@ impl App {
                             Style::default().fg(Color::Red)
                         }
                     ),
-                    Span::styled(format!("{:>10.2} ", t.amount.abs()), Style::default().fg(Color::White)),
-                    Span::styled(format!("{:<4}", currency), Style::default().fg(Color::Cyan)),
-                    Span::styled(format!("| {}", desc), Style::default().fg(Color::White)),
+                    Span::styled(format!("{:>10.2} ", display_amount), Style::default().fg(Color::White)),
+                    Span::styled(format!("{:<4}", display_currency), Style::default().fg(Color::Cyan)),
+                    if self.view_in_currency.is_some() && original_currency != display_currency {
+                        Span::styled(format!("({})", original_currency), Style::default().fg(Color::DarkGray))
+                    } else {
+                        Span::raw("")
+                    },
+                    Span::styled(format!(" | {}", desc), Style::default().fg(Color::White)),
                 ]))
                 .style(style)
             })
             .collect();
 
-        // Build title with filter info
+        // Build title with filter and view info
         let filter_str = match &self.currency_filter {
             Some(c) => format!(" [Filter: {}]", c),
+            None => String::new(),
+        };
+        
+        let view_str = match &self.view_in_currency {
+            Some(c) => format!(" [View: {}]", c),
             None => String::new(),
         };
 
@@ -787,8 +824,8 @@ impl App {
 
         let list = List::new(transactions)
             .block(Block::default().borders(Borders::ALL).title(format!(
-                "Transactions ({}){}{} - a: Add | f: Filter | d: Delete | ↑↓: Scroll",
-                total, filter_str, pos_indicator
+                "Transactions ({}){}{}{} - f: Filter | v: View in $ | ↑↓: Scroll",
+                total, filter_str, view_str, pos_indicator
             )))
             .highlight_style(
                 Style::default()
@@ -1938,31 +1975,91 @@ impl App {
             && self.selected_index < self.accounts.len()
         {
             let a = &self.accounts[self.selected_index];
-            vec![
+            
+            // Get transactions for this account
+            let account_txns: Vec<_> = self.transactions.iter()
+                .filter(|t| t.account_id == a.id)
+                .collect();
+            
+            // Determine display currency (use account-specific view currency)
+            let display_currency = self.account_view_currency.as_ref()
+                .map(|s| s.as_str())
+                .unwrap_or(&a.currency);
+            let rate = self.get_exchange_rate(&a.currency, display_currency);
+            
+            let view_indicator = if self.account_view_currency.is_some() {
+                format!(" → {}", display_currency)
+            } else {
+                String::new()
+            };
+            
+            let mut lines = vec![
                 Line::from(vec![Span::styled(
-                    "Account Details",
-                    Style::default()
-                        .fg(Color::Cyan)
-                        .add_modifier(Modifier::BOLD),
+                    format!("Account: {} [{}]{}", a.name, a.currency, view_indicator),
+                    Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
                 )]),
                 Line::from(""),
-                Line::from(format!("ID: {}", a.id)),
-                Line::from(format!("Name: {}", a.name)),
-                Line::from(format!("Type: {}", a.account_type)),
-                Line::from(format!("Bank: {}", a.bank_name.as_deref().unwrap_or("N/A"))),
-                Line::from(format!("Currency: {}", a.currency)),
-                Line::from(format!("Initial Balance: ${:.2}", a.initial_balance)),
-                Line::from(format!("Current Balance: ${:.2}", a.current_balance)),
-                Line::from(format!(
-                    "Created: {}",
-                    a.created_at.format("%Y-%m-%d %H:%M:%S")
-                )),
+                Line::from(vec![
+                    Span::styled("Type: ", Style::default().fg(Color::Gray)),
+                    Span::raw(format!("{} | ", a.account_type)),
+                    Span::styled("Bank: ", Style::default().fg(Color::Gray)),
+                    Span::raw(a.bank_name.as_deref().unwrap_or("N/A")),
+                ]),
+                Line::from(vec![
+                    Span::styled("Balance: ", Style::default().fg(Color::Gray)),
+                    Span::styled(format!("{:.2} {}", a.current_balance * rate, display_currency),
+                        if a.current_balance >= 0.0 { Style::default().fg(Color::Green) }
+                        else { Style::default().fg(Color::Red) }),
+                    if self.account_view_currency.is_some() {
+                        Span::styled(format!(" ({:.2} {})", a.current_balance, a.currency), 
+                            Style::default().fg(Color::DarkGray))
+                    } else {
+                        Span::raw("")
+                    },
+                ]),
                 Line::from(""),
                 Line::from(vec![Span::styled(
-                    "Press Esc to go back",
-                    Style::default().fg(Color::Gray),
+                    format!("─── Transactions ({}) ───", account_txns.len()),
+                    Style::default().fg(Color::Yellow),
                 )]),
-            ]
+            ];
+            
+            // Show transactions (limit to 15)
+            for t in account_txns.iter().take(15) {
+                let sign = if t.transaction_type == "income" { "+" } else { "-" };
+                let color = if t.transaction_type == "income" { Color::Green } else { Color::Red };
+                let desc = t.description.as_deref().unwrap_or("No description");
+                let display_amount = t.amount * rate;
+                lines.push(Line::from(vec![
+                    Span::styled(format!("{}{:.2} ", sign, display_amount), Style::default().fg(color)),
+                    Span::styled(format!("{} ", display_currency), Style::default().fg(Color::Gray)),
+                    if self.account_view_currency.is_some() {
+                        Span::styled(format!("({}{:.2} {}) ", sign, t.amount, a.currency), 
+                            Style::default().fg(Color::DarkGray))
+                    } else {
+                        Span::raw("")
+                    },
+                    Span::raw(if desc.len() > 25 { format!("{}...", &desc[..22]) } else { desc.to_string() }),
+                ]));
+            }
+            if account_txns.len() > 15 {
+                lines.push(Line::from(vec![Span::styled(
+                    format!("  ... and {} more", account_txns.len() - 15),
+                    Style::default().fg(Color::DarkGray),
+                )]));
+            }
+            
+            lines.push(Line::from(""));
+            let view_hint = if self.account_view_currency.is_some() {
+                format!("v: Change view (current: {})", display_currency)
+            } else {
+                "v: View in different currency".to_string()
+            };
+            lines.push(Line::from(vec![Span::styled(
+                format!("Esc: Back | {}", view_hint),
+                Style::default().fg(Color::Gray),
+            )]));
+            lines
         } else if self.current_screen == Screen::ExchangeRates
             && self.selected_index < self.exchange_rates.len()
         {
@@ -2060,7 +2157,7 @@ impl App {
                     if self.current_screen == Screen::UserSelect {
                         Paragraph::new("↑↓: Select | Enter: Login | a: Add | d: Delete | q: Quit")
                     } else if self.current_screen == Screen::Transactions {
-                        Paragraph::new("↑↓/[]: Scroll | g/G: Top/Bottom | a: Add | f: Filter | d: Delete | Enter: Details | r: Refresh | q: Quit")
+                        Paragraph::new("↑↓/[]: Scroll | g/G: Top/Bottom | a: Add | f: Filter | v: View in Currency | d: Delete | Enter: Details | q: Quit")
                     } else if self.current_screen == Screen::ExchangeRates {
                         Paragraph::new("↑↓/[]: Scroll | g/G: Top/Bottom | a: Add | c: Convert | d: Delete | Enter: Details | r: Refresh | q: Quit")
                     } else if self.current_screen == Screen::RecurringTransactions {
@@ -2104,13 +2201,16 @@ impl App {
                     "y: Confirm delete | n: Cancel"
                 ),
                 Mode::ViewDetails => Paragraph::new(
-                    "Esc: Go back"
+                    "Esc: Go back | v: View in different currency"
                 ),
                 Mode::ExportData => Paragraph::new(
                     "1-4: Select export format | Esc: Cancel"
                 ),
                 Mode::SelectCurrencyFilter => Paragraph::new(
                     "0: All Currencies | 1-9: Select currency | Esc: Cancel"
+                ),
+                Mode::SelectViewCurrency => Paragraph::new(
+                    "↑↓: Scroll | []: Jump 10 | Enter: Select | Esc: Cancel"
                 ),
             }
             .style(Style::default().fg(Color::Gray))
@@ -2155,6 +2255,7 @@ impl App {
                             Mode::ViewDetails => self.handle_details_mode(key.code),
                             Mode::ExportData => self.handle_export_mode(key.code).await,
                             Mode::SelectCurrencyFilter => self.handle_currency_filter_mode(key.code),
+                            Mode::SelectViewCurrency => self.handle_view_currency_mode(key.code),
                         }
                     }
                 }
@@ -2275,6 +2376,12 @@ impl App {
                 // Filter by currency on Transactions screen
                 if self.current_screen == Screen::Transactions {
                     self.mode = Mode::SelectCurrencyFilter;
+                }
+            }
+            KeyCode::Char('v') => {
+                // View in currency on Transactions screen
+                if self.current_screen == Screen::Transactions {
+                    self.mode = Mode::SelectViewCurrency;
                 }
             }
             KeyCode::Char('p') => {
@@ -3191,8 +3298,19 @@ impl App {
     }
 
     fn handle_details_mode(&mut self, code: KeyCode) {
-        if code == KeyCode::Esc {
-            self.mode = Mode::Normal;
+        match code {
+            KeyCode::Esc => {
+                // Clear account-specific view currency when exiting details
+                self.account_view_currency = None;
+                self.mode = Mode::Normal;
+            }
+            KeyCode::Char('v') => {
+                // Open currency conversion selector when viewing account details
+                if self.current_screen == Screen::Accounts {
+                    self.mode = Mode::SelectViewCurrency;
+                }
+            }
+            _ => {}
         }
     }
 
@@ -3231,6 +3349,203 @@ impl App {
             }
             _ => {}
         }
+    }
+
+    fn render_view_currency_dialog(&self, frame: &mut Frame, area: ratatui::layout::Rect) {
+        // Make popup larger to show more currencies
+        let popup_area = ratatui::layout::Rect {
+            x: area.x + area.width / 6,
+            y: area.y + 2,
+            width: area.width * 2 / 3,
+            height: area.height.saturating_sub(4),
+        };
+
+        frame.render_widget(ratatui::widgets::Clear, popup_area);
+
+        // Determine if this is for account details or transactions
+        let is_account_details = self.current_screen == Screen::Accounts;
+        let current_selection = if is_account_details {
+            &self.account_view_currency
+        } else {
+            &self.view_in_currency
+        };
+
+        // Calculate visible area (subtract borders and header/footer)
+        let visible_height = popup_area.height.saturating_sub(6) as usize;
+        let total_currencies = self.available_currencies.len();
+        
+        // Build currency list items
+        let mut items: Vec<ListItem> = Vec::new();
+        
+        // First item: Original (no conversion)
+        let is_original_active = current_selection.is_none();
+        let is_original_highlighted = self.currency_scroll_offset == 0;
+        let original_style = if is_original_highlighted {
+            Style::default().bg(Color::DarkGray).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default()
+        };
+        items.push(ListItem::new(Line::from(vec![
+            Span::styled("► ", if is_original_highlighted { Style::default().fg(Color::Yellow) } else { Style::default().fg(Color::DarkGray) }),
+            Span::raw("Original (no conversion)"),
+            if is_original_active { 
+                Span::styled(" ✓ ACTIVE", Style::default().fg(Color::Green)) 
+            } else { 
+                Span::raw("") 
+            },
+        ])).style(original_style));
+
+        // Show currencies
+        for (i, curr) in self.available_currencies.iter().enumerate() {
+            let is_active = current_selection.as_ref() == Some(curr);
+            let is_highlighted = self.currency_scroll_offset == i + 1;
+            let item_style = if is_highlighted {
+                Style::default().bg(Color::DarkGray).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default()
+            };
+            items.push(ListItem::new(Line::from(vec![
+                Span::styled("► ", if is_highlighted { Style::default().fg(Color::Yellow) } else { Style::default().fg(Color::DarkGray) }),
+                Span::raw(curr.clone()),
+                if is_active { 
+                    Span::styled(" ✓ ACTIVE", Style::default().fg(Color::Green)) 
+                } else { 
+                    Span::raw("") 
+                },
+            ])).style(item_style));
+        }
+
+        // Show scroll indicator in title
+        let scroll_info = if total_currencies > visible_height {
+            format!(" [{}-{}/{}] ↑↓ to scroll", 
+                self.currency_scroll_offset + 1,
+                (self.currency_scroll_offset + visible_height).min(total_currencies + 1),
+                total_currencies + 1)
+        } else {
+            format!(" [{} currencies]", total_currencies)
+        };
+
+        let title = if is_account_details {
+            format!(" View Account In Currency{} ", scroll_info)
+        } else {
+            format!(" View Transactions In Currency{} ", scroll_info)
+        };
+
+        let list = List::new(items)
+            .block(Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::Yellow))
+                .title(title)
+                .title_style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)))
+            .highlight_style(Style::default().bg(Color::DarkGray));
+
+        // Apply scroll offset
+        let mut state = ListState::default();
+        state.select(Some(self.currency_scroll_offset));
+        frame.render_stateful_widget(list, popup_area, &mut state);
+    }
+
+    fn handle_view_currency_mode(&mut self, code: KeyCode) {
+        // Determine if we're setting account-specific or global view currency
+        let is_account_details = self.current_screen == Screen::Accounts;
+        let max_scroll = self.available_currencies.len(); // index 0 = "Original", 1+ = currencies
+        
+        match code {
+            KeyCode::Esc => {
+                self.currency_scroll_offset = 0;
+                self.mode = if is_account_details { Mode::ViewDetails } else { Mode::Normal };
+            }
+            // Scrolling support
+            KeyCode::Up => {
+                self.currency_scroll_offset = self.currency_scroll_offset.saturating_sub(1);
+            }
+            KeyCode::Down => {
+                if self.currency_scroll_offset < max_scroll {
+                    self.currency_scroll_offset += 1;
+                }
+            }
+            KeyCode::PageUp | KeyCode::Char('[') => {
+                self.currency_scroll_offset = self.currency_scroll_offset.saturating_sub(10);
+            }
+            KeyCode::PageDown | KeyCode::Char(']') => {
+                self.currency_scroll_offset = (self.currency_scroll_offset + 10).min(max_scroll);
+            }
+            KeyCode::Home => {
+                self.currency_scroll_offset = 0;
+            }
+            KeyCode::End => {
+                self.currency_scroll_offset = max_scroll;
+            }
+            // Enter to select the highlighted currency
+            KeyCode::Enter => {
+                let selected_idx = self.currency_scroll_offset;
+                self.currency_scroll_offset = 0;
+                
+                if selected_idx == 0 {
+                    // "Original (no conversion)" selected
+                    if is_account_details {
+                        self.account_view_currency = None;
+                        self.status_message = "Account: showing original currency".to_string();
+                        self.mode = Mode::ViewDetails;
+                    } else {
+                        self.view_in_currency = None;
+                        self.status_message = "Showing original currencies".to_string();
+                        self.mode = Mode::Normal;
+                    }
+                } else if selected_idx <= self.available_currencies.len() {
+                    // Currency selected (index 1 = first currency)
+                    let currency = self.available_currencies[selected_idx - 1].clone();
+                    if is_account_details {
+                        self.status_message = format!("Account: viewing in {}", currency);
+                        self.account_view_currency = Some(currency);
+                        self.mode = Mode::ViewDetails;
+                    } else {
+                        self.status_message = format!("Viewing all amounts in {}", currency);
+                        self.view_in_currency = Some(currency);
+                        self.mode = Mode::Normal;
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn get_exchange_rate(&self, from: &str, to: &str) -> f64 {
+        if from == to {
+            return 1.0;
+        }
+        // Try to find direct rate
+        if let Some(rate) = self.exchange_rates.iter().find(|r| 
+            r.from_currency == from && r.to_currency == to
+        ) {
+            return rate.rate;
+        }
+        // Try reverse rate
+        if let Some(rate) = self.exchange_rates.iter().find(|r| 
+            r.from_currency == to && r.to_currency == from
+        ) {
+            return 1.0 / rate.rate;
+        }
+        // Try via USD as intermediate
+        let from_to_usd = self.exchange_rates.iter()
+            .find(|r| r.from_currency == from && r.to_currency == "USD")
+            .map(|r| r.rate)
+            .or_else(|| self.exchange_rates.iter()
+                .find(|r| r.from_currency == "USD" && r.to_currency == from)
+                .map(|r| 1.0 / r.rate));
+        
+        let usd_to_target = self.exchange_rates.iter()
+            .find(|r| r.from_currency == "USD" && r.to_currency == to)
+            .map(|r| r.rate)
+            .or_else(|| self.exchange_rates.iter()
+                .find(|r| r.from_currency == to && r.to_currency == "USD")
+                .map(|r| 1.0 / r.rate));
+        
+        if let (Some(f), Some(t)) = (from_to_usd, usd_to_target) {
+            return f * t;
+        }
+        
+        1.0 // Default to 1.0 if no rate found
     }
 
     fn update_screen(&mut self) {
