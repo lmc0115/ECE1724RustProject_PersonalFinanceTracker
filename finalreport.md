@@ -14,7 +14,6 @@
 
 ---
 
-
 ## 1. Motivation
 
 ### Why Personal Finance Management?
@@ -533,14 +532,3 @@ The exchange rate system is designed for reliability and completeness:
 *Final Report - ECE1724 Fall 2025*
 *Personal Finance Tracker Team*
 
-
-
-
-# Video Demo
-
-Click the link [here](https://youtu.be/WEMto95f--w) to watch the video demo.
-
-
-# Video Slide Presentation
-
-Click the link [here]() to watch the video slide presentation.
