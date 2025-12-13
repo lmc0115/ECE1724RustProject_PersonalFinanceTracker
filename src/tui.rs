@@ -15,8 +15,11 @@ use ratatui::{
     Frame, Terminal,
 };
 use std::io;
+use std::time::{Duration as StdDuration, Instant};
 
+use chrono::Utc;
 use crate::models::*;
+use crate::recurring;
 use sqlx::SqlitePool;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -128,6 +131,9 @@ pub struct App {
 
     // Status message
     status_message: String,
+
+    // Auto refresh timer
+    last_auto_refresh: Instant,
 }
 
 impl App {
@@ -181,6 +187,7 @@ impl App {
             account_view_currency: None,
             currency_scroll_offset: 0,
             status_message: String::new(),
+            last_auto_refresh: Instant::now(),
         }
     }
 
@@ -199,6 +206,7 @@ impl App {
         while !self.should_quit {
             terminal.draw(|f| self.ui(f))?;
             self.handle_events().await?;
+            self.maybe_auto_refresh().await;
         }
 
         // Restore terminal
@@ -1336,7 +1344,7 @@ impl App {
                     Style::default().fg(Color::Green)),
             ]),
             Line::from(vec![
-                Span::styled("Type (i/e): ", Style::default().fg(Color::Gray)),
+                Span::styled("Type (i=income/e=expense): ", Style::default().fg(Color::Gray)),
                 Span::styled(
                     &self.form_type,
                     if self.form_field_index == 2 {
@@ -1380,7 +1388,7 @@ impl App {
                     if self.form_field_index == 5 {
                         Style::default().fg(Color::Yellow).add_modifier(Modifier::UNDERLINED)
                     } else { Style::default().fg(Color::White) }),
-                Span::styled(" (daily/weekly/monthly/yearly)", Style::default().fg(Color::DarkGray)),
+                Span::styled(" (d=day/w=week/m=month/y=year)", Style::default().fg(Color::DarkGray)),
             ]),
             Line::from(""),
             Line::from(vec![Span::styled("Tab: Next | Enter: Submit | Esc: Cancel", Style::default().fg(Color::Cyan))]),
@@ -1674,14 +1682,44 @@ impl App {
             account_lines.push(Line::from(""));
         }
 
-        let account_paragraph = Paragraph::new(account_lines)
+        // Build combined panel with accounts (top) and categories (below)
+        let mut right_lines: Vec<Line> = Vec::new();
+        right_lines.extend(account_lines);
+        right_lines.push(Line::from(""));
+        right_lines.push(Line::from(Span::styled(
+            "Categories (id = name [type])",
+            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+        )));
+
+        if self.categories.is_empty() {
+            right_lines.push(Line::from(Span::styled(
+                "  None for this user",
+                Style::default().fg(Color::DarkGray),
+            )));
+        } else {
+            for c in &self.categories {
+                right_lines.push(Line::from(vec![
+                    Span::styled(
+                        format!("  {}: ", c.id),
+                        Style::default().fg(Color::Cyan),
+                    ),
+                    Span::styled(
+                        &c.name,
+                        Style::default().fg(Color::White),
+                    ),
+                ]));
+            }
+        }
+
+        let right_panel = Paragraph::new(right_lines)
             .block(
                 Block::default()
                     .borders(Borders::ALL)
-                    .title("Select Account (grouped by Currency)"),
+                    .title("Select Account / Categories"),
             )
             .alignment(Alignment::Left);
-        frame.render_widget(account_paragraph, chunks[1]);
+
+        frame.render_widget(right_panel, chunks[1]);
     }
 
     fn render_add_exchange_rate_form(&self, frame: &mut Frame, area: ratatui::layout::Rect) {
@@ -2263,7 +2301,7 @@ impl App {
     }
 
     async fn handle_events(&mut self) -> io::Result<()> {
-        if event::poll(std::time::Duration::from_millis(100))? {
+        if event::poll(StdDuration::from_millis(100))? {
             if let Event::Key(key) = event::read()? {
                 if key.kind == KeyEventKind::Press {
                     if self.current_screen == Screen::UserSelect {
@@ -2303,6 +2341,20 @@ impl App {
             }
         }
         Ok(())
+    }
+
+    /// Periodically refresh data so background changes (like auto-processed recurring txns) show up.
+    async fn maybe_auto_refresh(&mut self) {
+        // Only refresh when a user is selected and we are not in a modal/form mode.
+        if self.current_user_id.is_none() || self.mode != Mode::Normal {
+            return;
+        }
+
+        let now = Instant::now();
+        if now.duration_since(self.last_auto_refresh) >= StdDuration::from_secs(3) {
+            self.load_data().await;
+            self.last_auto_refresh = now;
+        }
     }
 
     async fn handle_user_select_mode(&mut self, code: KeyCode) {
@@ -2685,13 +2737,16 @@ impl App {
             Some(self.form_description.clone())
         };
 
+        let now = chrono::Local::now().with_timezone(&Utc);
+
         let result = sqlx::query(
-            "INSERT INTO transactions (account_id, amount, transaction_type, description, transaction_date) VALUES (?, ?, ?, ?, datetime('now'))"
+            "INSERT INTO transactions (account_id, amount, transaction_type, description, transaction_date) VALUES (?, ?, ?, ?, ?)"
         )
         .bind(account_id)
         .bind(amount)
         .bind(txn_type)
         .bind(&description)
+        .bind(now)
         .execute(&self.pool)
         .await;
 
@@ -3246,69 +3301,18 @@ impl App {
     }
 
     async fn process_recurring_transactions(&mut self) {
-        let now = chrono::Utc::now();
-        let mut created_count = 0;
-
-        // Get due recurring transactions
-        let due: Vec<_> = self.recurring_transactions
-            .iter()
-            .filter(|r| r.is_active && r.next_occurrence <= now)
-            .cloned()
-            .collect();
-
-        for recurring in due {
-            // Create the transaction
-            let result = sqlx::query(
-                "INSERT INTO transactions (account_id, amount, transaction_type, description, transaction_date) 
-                 VALUES (?, ?, ?, ?, ?)"
-            )
-            .bind(recurring.account_id)
-            .bind(recurring.amount)
-            .bind(&recurring.transaction_type)
-            .bind(&recurring.description)
-            .bind(recurring.next_occurrence)
-            .execute(&self.pool)
-            .await;
-
-            if result.is_ok() {
-                // Update account balance
-                let balance_change = if recurring.transaction_type == "income" {
-                    recurring.amount
-                } else {
-                    -recurring.amount.abs()
-                };
-
-                let _ = sqlx::query(
-                    "UPDATE accounts SET current_balance = current_balance + ? WHERE id = ?"
-                )
-                .bind(balance_change)
-                .bind(recurring.account_id)
-                .execute(&self.pool)
-                .await;
-
-                // Calculate next occurrence
-                let next = match recurring.frequency.as_str() {
-                    "daily" => recurring.next_occurrence + chrono::Duration::days(1),
-                    "weekly" => recurring.next_occurrence + chrono::Duration::weeks(1),
-                    "monthly" => recurring.next_occurrence + chrono::Duration::days(30),
-                    "yearly" => recurring.next_occurrence + chrono::Duration::days(365),
-                    _ => recurring.next_occurrence + chrono::Duration::days(30),
-                };
-
-                let _ = sqlx::query(
-                    "UPDATE recurring_transactions SET next_occurrence = ? WHERE id = ?"
-                )
-                .bind(next)
-                .bind(recurring.id)
-                .execute(&self.pool)
-                .await;
-
-                created_count += 1;
+        match recurring::process_due_recurring(&self.pool).await {
+            Ok(result) => {
+                self.load_data().await;
+                self.status_message = format!(
+                    "Processed {} recurring transactions - {} new transactions created.",
+                    result.due, result.created
+                );
+            }
+            Err(e) => {
+                self.status_message = format!("Error processing recurring transactions: {}", e);
             }
         }
-
-        self.load_data().await;
-        self.status_message = format!("Processed {} recurring transactions - balances updated!", created_count);
     }
 
     async fn toggle_recurring_active(&mut self) {
