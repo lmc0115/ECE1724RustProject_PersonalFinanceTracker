@@ -3,12 +3,14 @@ mod api;
 mod exchange_scraper;
 mod models;
 mod seed;
+mod recurring;
 mod tui;
 
 use actix_web::{middleware, web, App, HttpServer};
 use dotenvy::dotenv;
 use sqlx::SqlitePool;
 use std::env;
+use tokio::time::{self, Duration};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -36,6 +38,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 println!("Starting web server...");
                 let bind_address =
                     env::var("BIND_ADDRESS").unwrap_or_else(|_| "127.0.0.1:8080".to_string());
+
+                // Background task: process due recurring transactions automatically
+                let pool_for_recurring = pool.clone();
+                tokio::spawn(async move {
+                    let mut interval = time::interval(Duration::from_secs(60*60)); // hourly
+                    loop {
+                        interval.tick().await;
+                        if let Err(e) = recurring::process_due_recurring(&pool_for_recurring).await {
+                            eprintln!("[recurring scheduler] {}", e);
+                        }
+                    }
+                });
 
                 println!("Server running at http://{}", bind_address);
                 println!("API Documentation:");
