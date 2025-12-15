@@ -24,30 +24,27 @@ Managing daily finances is a universal challenge faced by students, professional
 - **Feature bloat** that makes simple tasks unnecessarily complex
 - **Privacy concerns** with cloud-based services handling sensitive financial data
 
-### The Rust Ecosystem Gap
+Our team chose to develop a Personal Finance Tracker because managing daily finances is a relatable challenge for many people. Students, professionals, and families all need to track income, expenses, and savings, but existing tools are mostly limited by paywalls, dependent on mobile apps, or overloaded with features that make them complex to use. Our team wants to create a utility that is simple, accessible, and efficient, which is a lightweight command-line finance tracker that anyone can use directly from their terminal.
 
-Our research revealed a significant gap in the Rust ecosystem: while Rust excels in systems programming and web services, there is a notable absence of comprehensive personal finance tools. Most available finance utilities are written in Python, Java, or JavaScript. This presented an opportunity to:
+Our team found this project idea motivating because it combines both personal need for practical usefulness and the opportunity to expand the Rust ecosystem for technical creativity. What excites us most is that this project is practical and fun. It solves real-world problems we face, like logging recurring expenses, understanding where our money goes each month, converting between currencies when travelling around different countries, and managing accounts across different banks. It is also a challenge for us to explore advanced Rust libraries for databases, APIs, and text-based interfaces. This will make the development process rewarding and educational.
 
-1. **Fill a community need** by creating a terminal-based finance tracker
-2. **Demonstrate Rust's capabilities** in practical, user-facing applications
-3. **Gain experience** with Rust's database, async, and TUI ecosystems
+From a community perspective, there is a considerable gap in the Rust ecosystem that, although Rust has excellent support for systems programming and web services, there is a lack of finance-focused command-line tools. Most available utilities are written in Python, Java, or C++. By implementing this project in Rust, our team will gain valuable experience with the Rust ecosystem. Nevertheless, this project will contribute a utility that may inspire future Rust developers to explore beyond traditional systems programming.
 
-### Personal Motivation
-
-Our team was motivated by real-world problems we face daily:
-- Logging recurring expenses (rent, subscriptions, bills)
-- Understanding spending patterns across categories
-- Managing accounts across multiple banks and currencies
-- Converting currencies when traveling internationally
-
-Building a tool that solves our own problems while contributing to the Rust ecosystem made this project both personally satisfying and technically rewarding.
+Generally, the motivation behind our project comes from three main drivers:
+- **Practical need** — addressing a real-world problem in personal finance management.
+- **Personal satisfaction** — working on a project that is both fun and directly applicable to people’s lives satisfied our team a lot.
+- **Community contribution** — filling a gap in Rust’s ecosystem that potentially inspires future applications. 
 
 ---
 
 ## 2. Objectives
+The Object of the Personal Tracker is to use Rust’s guarantees of memory safety, strict type system, and efficient concurrency to perform a Complete, user-friendly, terminal-based financial utility.
 
-The primary objective of this project was to develop a **complete, user-friendly, terminal-based personal finance tracker** that leverages Rust's memory safety, strict type system, and efficient concurrency.
+Our goal is to develop a practical and user-friendly command-line personal finance tracker that enables users to manage their daily finances across multiple currencies and bank accounts. The tool enables users to log transactions, categorize them, and view their spending patterns over time.
 
+By using a backend server for data storage and integrating real-time exchange rate APIs, we aim to create a system that's both accessible and secure, while providing accurate financial insights regardless of which currencies users work with.
+
+In addition to being a practical tool for everyday use, we aim to explore and demonstrate how Rust can be applied to real-world financial records, competing with JavaScript and Python for mature personal finance ecosystems.
 ### Specific Goals
 
 1. **Transaction Management**: Enable users to log income and expenses with categorization
@@ -63,45 +60,114 @@ The primary objective of this project was to develop a **complete, user-friendly
 
 ## 3. Features
 
+### High‑level data flow
+
+```mermaid
+flowchart LR
+  subgraph UI["Terminal UI (ratatui)"]
+    TUI["tui.rs\nState machine + rendering + SQLx queries"]
+  end
+
+  subgraph API["REST API (actix-web)"]
+    SRV["api.rs\nHTTP handlers + SQLx queries"]
+  end
+
+  subgraph DB["SQLite"]
+    SQLITE["personal-finance-tracker.db\nusers/accounts/categories/transactions/..."]
+  end
+
+  subgraph Jobs["Background jobs & tools"]
+    REC["recurring.rs\nprocess_due_recurring()"]
+    FX["exchange_scraper.rs\nsmart_fetch_exchange_rates()"]
+    SEED["seed.rs\nseed_database()/clear_database()"]
+  end
+
+  TUI <--> SQLITE
+  SRV <--> SQLITE
+  REC --> SQLITE
+  FX --> SQLITE
+  SEED --> SQLITE
+```
+
 ### 3.1 Core Features
 
+The project’s feature set is intentionally aligned with the **Objectives** (terminal-first workflow, multi-currency support, dual TUI/REST interfaces, and strict reproducibility). Each feature below is included because it directly increases the usefulness of the final deliverable for real personal-finance tracking.
+
+### 1) End-to-end terminal finance workflow 
+A complete ledger workflow is available without leaving the terminal:
+- **Multi-user profiles**: create, select, and delete users.
+- **Accounts**: multiple accounts per user (account type, optional bank name, currency, initial balance).
+- **Transactions**: record income/expense transactions with date, description, amount, and optional category.
+- **Categories**: define income/expense categories and attach them to transactions.
+- **Balance Tracking**: account balances are automatically updated when transactions are created or deleted.
+
+Value: this is the core “finance tracker” objective—an instructor can reproduce a realistic workflow entirely in the TUI.
+
+### 2) Keyboard-driven TUI with safety and productivity 
+A Text User Interface (Ratatui) provides a fast, demo-friendly experience:
+- **Screen-based navigation**: UserSelect → Dashboard → Accounts → Transactions → Categories → Recurring → FX Rates → Reports → Export.
+- **Action-oriented shortcuts**: add/edit/delete entities from the relevant screen; status messages and error feedback are displayed inline.
+- **Safe destructive actions**: delete operations use confirmations to reduce accidental data loss.
+
+Value: makes all core features discoverable and testable during a live demo, and enables rapid manual testing without external tooling.
+
+### 3) Recurring transactions engine 
+Recurring transactions are first-class, not a “nice-to-have”:
+- Create recurring templates with **daily / weekly / monthly / yearly** schedules.
+- **Manual processing** in the TUI (useful for demonstrations and controlled testing).
+- **Automatic processing** when running the REST server: a background scheduler processes due items **hourly**.
+
+Value: recurring payments (rent, insurance, subscriptions) are a high-frequency real-world need; implementing both manual and scheduled processing shows systems design beyond basic CRUD.
+
+### 4) Multi-currency support with persisted FX rates 
+Multi-currency is implemented as a usable workflow rather than a static conversion:
+- **FX rate ingestion**: scrape and store exchange rates (50+ currencies; base-currency driven).
+- **View-in-currency** in the TUI: display and compare values using a selected currency.
+- **Conversion calculator** dialog in the FX Rates screen for quick ad-hoc conversions.
+
+Value: supports international users and cross-border accounts, and demonstrates integration of external data + persistence + UI.
+
+### 5) REST API for programmatic access and integration 
+In addition to the TUI, the project can run as a web service (Actix Web):
+- CRUD endpoints for **users, accounts, categories, transactions, recurring transactions**.
+- Utility endpoints for **processing recurring transactions** (triggered manually via HTTP).
+- Read-only endpoints for **analytics** (e.g., spending by category, monthly summaries, top categories).
+- Export endpoints for **CSV/JSON** outputs.
+
+Value: enables automated testing, scripting, and future integrations (e.g., importing bank statements, dashboards), while keeping the TUI as the primary UX.
+
+### 6) Built-in reporting and exports 
+To support “use the data elsewhere” workflows:
+- **Reports**: high-level summaries and category-based breakdowns suitable for quick insights.
+- **Exports**: transactions and accounts exportable to **CSV/JSON** for external analysis.
+
+Value: bridges interactive usage and downstream analysis, which is a common expectation for finance tooling.
+
+### 7) Reproducibility utilities 
+The repository includes explicit commands to support deterministic evaluation:
+- `db_clear` to wipe the database state.
+- `db_reseed` to create sample data for quick demos/tests.
+- `scrape_rates` to populate FX data in a controlled way.
+
+Value: ensures the instructor can reproduce a known state reliably on both Ubuntu and macOS by following the README verbatim.
+
+### Deletion behavior (important for evaluation)
+- Each entity can be deleted individually in the TUI: **accounts**, **transactions**, **categories**, **recurring transactions**, and **exchange rates**.
+- Deleting a **user** performs a cascade-style cleanup: all dependent rows are removed first (transactions, recurring transactions, categories, accounts) before deleting the user row.
+
+
+### 3.2 Other Features
+
 | Feature | Description |
 |---------|-------------|
-| **User Management** | Create, switch between, and delete user profiles |
-| **Account Management** | Add/delete bank accounts with custom currencies (USD, EUR, CAD, etc.) |
-| **Transaction Logging** | Record income and expenses with descriptions and categories |
-| **Category System** | User-defined categories for organizing transactions |
-| **Balance Tracking** | Automatic balance updates on transaction create/delete |
-
-### 3.2 Advanced Features
-
-| Feature | Description |
-|---------|-------------|
-| **Recurring Transactions** | Set up automatic monthly/weekly/daily/yearly transactions |
-| **Multi-Currency** | Support for 50+ currencies with real-time exchange rates |
 | **Currency Conversion Calculator** | Convert amounts between currencies using live rates |
 | **View in Currency (Transactions)** | View all transactions converted to any target currency |
 | **View in Currency (Account)** | View account details with all amounts in chosen currency |
 | **Intelligent Rate Fallback** | Direct rate → Inverse rate → Multi-currency triangulation (USD/EUR/CAD/GBP) |
 | **Exchange Rate Scraping** | Fetch latest rates from X-Rates (4 base currencies: USD, EUR, CAD, GBP × 50+ targets) |
 | **Spending Analytics** | Top spending categories with visual bar charts |
-| **Data Export** | Export to CSV and JSON formats |
 | **Account Transaction View** | View all transactions under each account with full details |
 
-### 3.3 User Interface Features
-
-| Feature | Description |
-|---------|-------------|
-| **8-Tab Navigation** | Dashboard, Accounts, Transactions, Categories, Recurring, FX Rates, Reports, Export |
-| **Cross-Platform Shortcuts** | Works on Windows, Mac, and Linux with alternative key bindings |
-| **Scrollable Lists** | Full scrolling with `↑`/`↓`, `[`/`]` (jump 10) |
-| **Scrollable Dialogs** | Currency selection shows all 50+ currencies with scroll support |
-| **Interactive Forms** | Tab-based field navigation for data entry |
-| **Currency Filtering** | Filter transactions by specific currency |
-| **View in Currency** | Convert and view all amounts in any target currency (Enter to select) |
-| **Position Indicators** | Always know your position in lists (e.g., [22-32/56]) |
-| **Account Details** | View all transactions under an account with independent currency conversion |
-| **Visual Highlights** | `►` marker and `✓ ACTIVE` indicators in selection dialogs |
 
 ---
 
@@ -109,14 +175,14 @@ The primary objective of this project was to develop a **complete, user-friendly
 
 ### 4.1 Starting the Application
 
-**Launch the TUI:**
-```bash
-cargo run tui
-```
-
 **Start the API server:**
 ```bash
 cargo run serve
+```
+
+**Launch the TUI:**
+```bash
+cargo run tui
 ```
 
 ### 4.2 User Selection Screen
@@ -302,9 +368,9 @@ sqlite3 personal-finance-tracker.db ".tables"
 #           transaction_categories transactions users
 ```
 
-### 5.5 Seed Initial Data
+### 5.5 Seed Initial Data (Optional)
 
-```bash
+```bash 
 # Populate database with sample data (users, accounts, transactions)
 cargo run db_seed
 
@@ -316,7 +382,7 @@ cargo run scrape_rates
 cargo run scrape_rates JPY
 ```
 
-**Note:** Exchange rates are required for the "View in Currency" feature to work correctly. Running `scrape_rates` fetches rates for 4 base currencies, enabling conversion between any of the 50+ supported currencies through direct rates or triangulation.
+**Note:** "cargo run scrape_rates" is not optional to run. Exchange rates are required for the "View in Currency" feature to work correctly. Running `scrape_rates` fetches rates for 4 base currencies, enabling conversion between any of the 50+ supported currencies through direct rates or triangulation.
 
 ### 5.6 Build and Run
 
@@ -331,7 +397,7 @@ cargo run serve
 # Server starts at http://127.0.0.1:8080
 ```
 
-**Option 3: Run both (in separate terminals)**
+**Option 3: Run both (Recommond)**
 ```bash
 # Terminal 1: Start API server
 cargo run serve
@@ -343,7 +409,7 @@ cargo run tui
 ### 5.7 Verify Installation
 
 After running `cargo run tui`:
-1. You should see a user selection screen with 3 sample users
+1. You should see a user selection screen with 3 sample users (if choosing seed inital data)
 2. Select a user and press Enter
 3. Navigate through all 8 tabs to verify functionality
 4. Try adding a transaction (Tab 3 → press `a`)
@@ -377,26 +443,25 @@ cargo run db_status
 - Project initialization and Rust project setup
 - Database schema design and SQLite integration
 - SQLx migrations for all core tables
-- RESTful API development using Actix-web:
-  - User CRUD endpoints
-  - Account management endpoints
-  - Transaction endpoints
-  - Category endpoints
+- RESTful API development
 - Exchange rate API integration and web scraping
 - Currency conversion logic
-- TUI framework setup with ratatui
-- Main navigation and menu system
+- API endpoint documentation
+- Seed data creation for testing
+- Migration file creation using sqlx-cli
 - User documentation and setup guide
-- API documentation
+- Database structure documentation
+
+
+
 
 ### Muchen Liu
 
 **Primary Responsibilities:**
-- Migration file creation using sqlx-cli
-- Seed data creation for testing
 - Error handling and validation implementation
 - API testing with Postman
 - Recurring transaction endpoints
+- Data integrity and error handling validation
 - CSV/JSON export functionality
 - TUI screens implementation:
   - Transaction entry and viewing
@@ -409,92 +474,26 @@ cargo run db_status
 ### Ziang Wang
 
 **Primary Responsibilities:**
+- TUI framework setup with ratatui
+- Main navigation and menu system
 - Database structure documentation
-- Automated migration testing
-- API authentication and security
-- Data integrity and error handling validation
-- API endpoint documentation
+- Recurring transaction endpoints
 - Currency conversion testing
-- Recurring transaction automation testing
 - Export format testing
 - TUI to backend API connection
 - Final project submission preparation
+- Video presentation and demo creation
+
 
 ---
 
 ## 7. Lessons Learned and Concluding Remarks
+- **Rust ownership + UI state**: building a complex stateful TUI (forms, dialogs, scrolling lists) required careful state design to stay borrow‑checker friendly while keeping the UI responsive.
+- **SQLite constraints matter**: foreign key ordering and deletion ordering are critical; we implemented safe delete sequences and (for dev workflows) reset SQLite autoincrement counters.
+- **Multi‑currency is deceptively hard**: exchange‑rate data is often incomplete; robust display conversion benefits from inverse lookup and triangulation (we used common intermediates like USD/EUR/CAD/GBP).
+- **Two interfaces are complementary**: the TUI optimizes daily personal use, while the REST API enables scripting, testing, and future integrations.
 
-### 7.1 Technical Lessons
-
-**Rust Ownership and Borrowing:**
-Working with ratatui and async database operations taught us to carefully manage ownership. For example, when rendering lists, we learned to use references and cloning strategically to avoid borrow checker conflicts while maintaining performance.
-
-**Async Programming:**
-SQLx's async nature required understanding of Tokio runtime and proper async/await patterns. We learned to structure our code to maximize concurrency while handling database connections efficiently.
-
-**Error Handling:**
-Rust's Result type forced us to handle errors explicitly. This led to more robust code where database failures, invalid user input, and network errors are all handled gracefully with informative messages.
-
-**TUI Development:**
-Building with ratatui taught us about:
-- Stateful vs stateless widget rendering (ListState for scrollable lists)
-- Efficient terminal redrawing and layout management
-- Keyboard event handling across different platforms (Mac lacks Home/End/PageUp/PageDown keys)
-- Providing alternative keybindings (e.g., `[`/`]` for PageUp/PageDown)
-- Building scrollable dialogs with Enter-to-select pattern for better UX
-- Managing separate state for different contexts (e.g., account view currency vs transaction view currency)
-
-**Multi-Currency Handling:**
-Implementing currency conversion across 50+ currencies taught us:
-- The importance of normalizing data formats (currency codes vs full names like "Czech Koruna (CZK)")
-- How to extract currency codes from various string formats using pattern matching
-- Triangulation strategies when direct exchange rates don't exist
-- Smart database queries that deduplicate and get only the latest rates per currency pair
-- The value of trying multiple intermediate currencies (USD, EUR, CAD, GBP) for robust conversion
-
-### 7.2 Project Management Lessons
-
-**Iterative Development:**
-Our tentative plan evolved significantly as we progressed. Features we thought would be simple (like multi-currency support) required more work, while others (like the TUI navigation) came together faster than expected.
-
-**Testing Throughout:**
-We learned the value of testing each component as it was built rather than waiting until the end. This caught issues early and made debugging much easier.
-
-**Documentation During Development:**
-Writing documentation alongside code development (rather than at the end) helped clarify our thinking and made the codebase more maintainable.
-
-### 7.3 Rust Ecosystem Observations
-
-**Strengths:**
-- SQLx provided excellent type-safe database queries
-- ratatui is a mature and well-documented TUI framework
-- Actix-web made RESTful API development straightforward
-- Cargo's dependency management is excellent
-
-**Challenges:**
-- Some libraries have steep learning curves
-- Compile times can be long with many dependencies
-- The Rust community's finance tools are less mature than Python/JavaScript
-
-### 7.4 Concluding Remarks
-
-This project successfully demonstrates that Rust is a viable choice for building practical, user-facing financial applications. Our Personal Finance Tracker provides:
-
-- **Complete functionality** for personal finance management
-- **Multiple interfaces** (TUI and REST API) for different use cases
-- **Multi-currency support** for global users with real-time conversion
-- **View in Currency** feature for unified financial overview across currencies
-- **Cross-platform compatibility** with Mac, Linux, and Windows support
-- **Data portability** through CSV/JSON exports
-
-The project fills a gap in the Rust ecosystem by providing a comprehensive, terminal-based finance tracker that prioritizes:
-- Privacy (local SQLite database)
-- Speed (Rust's performance)
-- Reliability (type safety and error handling)
-- Usability (intuitive TUI with scrollable dialogs and Enter-to-select pattern)
-- Accessibility (cross-platform keyboard shortcuts for Mac/Linux/Windows)
-
-We hope this project inspires other Rust developers to build practical applications in domains traditionally dominated by Python and JavaScript.
+Overall, this project demonstrates a practical, local‑first finance tracker in Rust with a strong emphasis on usability (ratatui), typed persistence (SQLx), and extensibility (REST API + exports).
 
 ---
 
