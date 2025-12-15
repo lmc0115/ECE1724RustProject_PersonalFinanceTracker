@@ -13,6 +13,10 @@
 | Ziang Wang | 1006912370 | ziang.wang@mail.utoronto.ca |
 
 ---
+## Video Presentation
+https://youtu.be/pT9dedfG_tY
+## Video Demo
+https://youtu.be/WEMto95f--w
 
 ## 1. Motivation
 
