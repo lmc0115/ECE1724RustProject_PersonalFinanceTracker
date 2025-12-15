@@ -502,7 +502,7 @@ Overall, this project demonstrates a practical, local‑first finance tracker in
 | Metric | Value |
 |--------|-------|
 | Lines of Rust Code | ~5,500+ |
-| Number of Source Files | 6 |
+| Number of Source Files | 7 |
 | Database Tables | 7 |
 | API Endpoints | 25+ |
 | TUI Screens | 8 |
